@@ -1,0 +1,8 @@
+*.c
+*.cpp
+*.png
+*.svg
+*.csv
+*.dot
+*.bin
+*.tmp

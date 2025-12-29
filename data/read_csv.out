@@ -1,0 +1,6 @@
+/home/wbt/newDisk/code/Ai/GAJIT/src/./read_csv.py:21: DtypeWarning: Columns (1,20,22,23,27,28,29) have mixed types. Specify dtype option on import or set low_memory=False.
+  file = pandas.read_csv (csv_abs_path)
+/home/wbt/newDisk/code/Ai/GAJIT/data/MSR_data_cleaned.csv
+num =  188636
+error =  10786
+correct =  175211

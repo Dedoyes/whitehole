@@ -1,0 +1,75 @@
+../data/correct_func/func_after/0.c:1:8: error: unknown type name 'bool'
+    1 | static bool check_rodc_critical_attribute(struct ldb_message *msg)
+      |        ^
+../data/correct_func/func_after/0.c:1:50: warning: declaration of 'struct ldb_message' will not be visible outside of this function [-Wvisibility]
+    1 | static bool check_rodc_critical_attribute(struct ldb_message *msg)
+      |                                                  ^
+../data/correct_func/func_after/0.c:3:2: error: use of undeclared identifier 'uint32_t'
+    3 |         uint32_t schemaFlagsEx, searchFlags, rodc_filtered_flags;
+      |         ^
+../data/correct_func/func_after/0.c:5:2: error: use of undeclared identifier 'schemaFlagsEx'
+    5 |         schemaFlagsEx = ldb_msg_find_attr_as_uint(msg, "schemaFlagsEx", 0);
+      |         ^
+../data/correct_func/func_after/0.c:5:18: error: call to undeclared function 'ldb_msg_find_attr_as_uint'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]
+    5 |         schemaFlagsEx = ldb_msg_find_attr_as_uint(msg, "schemaFlagsEx", 0);
+      |                         ^
+../data/correct_func/func_after/0.c:6:2: error: use of undeclared identifier 'searchFlags'
+    6 |         searchFlags = ldb_msg_find_attr_as_uint(msg, "searchFlags", 0);
+      |         ^
+../data/correct_func/func_after/0.c:7:2: error: use of undeclared identifier 'rodc_filtered_flags'
+    7 |         rodc_filtered_flags = (SEARCH_FLAG_RODC_ATTRIBUTE
+      |         ^
+../data/correct_func/func_after/0.c:7:25: error: use of undeclared identifier 'SEARCH_FLAG_RODC_ATTRIBUTE'
+    7 |         rodc_filtered_flags = (SEARCH_FLAG_RODC_ATTRIBUTE
+      |                                ^
+../data/correct_func/func_after/0.c:8:12: error: use of undeclared identifier 'SEARCH_FLAG_CONFIDENTIAL'
+    8 |                               | SEARCH_FLAG_CONFIDENTIAL);
+      |                                 ^
+../data/correct_func/func_after/0.c:10:7: error: use of undeclared identifier 'schemaFlagsEx'
+   10 |         if ((schemaFlagsEx & SCHEMA_FLAG_ATTR_IS_CRITICAL) &&
+      |              ^
+../data/correct_func/func_after/0.c:10:23: error: use of undeclared identifier 'SCHEMA_FLAG_ATTR_IS_CRITICAL'
+   10 |         if ((schemaFlagsEx & SCHEMA_FLAG_ATTR_IS_CRITICAL) &&
+      |                              ^
+../data/correct_func/func_after/0.c:11:5: error: use of undeclared identifier 'searchFlags'
+   11 |                 ((searchFlags & rodc_filtered_flags) == rodc_filtered_flags)) {
+      |                   ^
+../data/correct_func/func_after/0.c:11:19: error: use of undeclared identifier 'rodc_filtered_flags'
+   11 |                 ((searchFlags & rodc_filtered_flags) == rodc_filtered_flags)) {
+      |                                 ^
+../data/correct_func/func_after/0.c:11:43: error: use of undeclared identifier 'rodc_filtered_flags'
+   11 |                 ((searchFlags & rodc_filtered_flags) == rodc_filtered_flags)) {
+      |                                                         ^
+../data/correct_func/func_after/0.c:12:10: error: use of undeclared identifier 'true'
+   12 |                 return true;
+      |                        ^
+../data/correct_func/func_after/0.c:14:10: error: use of undeclared identifier 'false'; did you mean 'else'?
+   14 |                 return false;
+      |                        ^~~~~
+      |                        else
+../data/correct_func/func_after/0.c:14:10: error: expected expression
+1 warning and 16 errors generated.
+TranslationUnitDecl 0x62037c5799b8 <<invalid sloc>> <invalid sloc>
+|-TypedefDecl 0x62037c57a590 <<invalid sloc>> <invalid sloc> implicit __int128_t '__int128'
+| `-BuiltinType 0x62037c579f80 '__int128'
+|-TypedefDecl 0x62037c57a600 <<invalid sloc>> <invalid sloc> implicit __uint128_t 'unsigned __int128'
+| `-BuiltinType 0x62037c579fa0 'unsigned __int128'
+|-TypedefDecl 0x62037c57a910 <<invalid sloc>> <invalid sloc> implicit __NSConstantString 'struct __NSConstantString_tag'
+| `-RecordType 0x62037c57a6e0 'struct __NSConstantString_tag'
+|   `-Record 0x62037c57a658 '__NSConstantString_tag'
+|-TypedefDecl 0x62037c57a238 <<invalid sloc>> <invalid sloc> implicit __builtin_ms_va_list 'char *'
+| `-PointerType 0x62037c57a1f0 'char *'
+|   `-BuiltinType 0x62037c579a60 'char'
+|-TypedefDecl 0x62037c57a520 <<invalid sloc>> <invalid sloc> implicit __builtin_va_list 'struct __va_list_tag[1]'
+| `-ConstantArrayType 0x62037c57a4d0 'struct __va_list_tag[1]' 1 
+|   `-RecordType 0x62037c57a310 'struct __va_list_tag'
+|     `-Record 0x62037c57a290 '__va_list_tag'
+`-FunctionDecl 0x62037c5e44b8 <../data/correct_func/func_after/0.c:1:1, line:16:1> line:1:13 invalid check_rodc_critical_attribute 'int (struct ldb_message *)' static
+  |-ParmVarDecl 0x62037c5e43a8 <col:43, col:63> col:63 used msg 'struct ldb_message *'
+  `-CompoundStmt 0x62037c5e4b48 <line:2:1, line:16:1>
+    `-IfStmt 0x62037c5e4b18 <line:10:2, line:15:2> has_else
+      |-RecoveryExpr 0x62037c5e4a70 <line:10:6, line:11:62> '_Bool' contains-errors
+      |-CompoundStmt 0x62037c5e4ad8 <col:65, line:13:2>
+      | `-ReturnStmt 0x62037c5e4ac8 <line:12:3, col:10>
+      |   `-RecoveryExpr 0x62037c5e4aa8 <col:10> '<dependent type>' contains-errors lvalue
+      `-CompoundStmt 0x62037c5e4b08 <line:13:9, line:15:2>
