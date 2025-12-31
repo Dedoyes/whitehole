@@ -1,8 +1,11 @@
-*.c
-*.cpp
-*.png
-*.svg
+./data/correct_func/
+./workspace/
 *.csv
 *.dot
+*.cpp
+*.c
+*.npy
 *.bin
 *.tmp
+*.png
+*.svg

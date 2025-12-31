@@ -3,12 +3,12 @@ import java.nio.file.{Files, Paths}
 val file_path = java.nio.file.Paths.get("").toAbsolutePath
 println (file_path)
 
-val in_path = file_path.resolve ("data/correct_func/func_after")
-val out_path = file_path.resolve("data/correct_func/dot_after")
+val in_path = file_path.resolve ("data/error_func/func_before")
+val out_path = file_path.resolve("data/error_func/dot_before")
 
 importCode (
     inputPath = in_path.toString,
-    projectName = "correct_funcs_after"
+    projectName = "error_funcs_before"
 )
 
 cpg.method.l.foreach { m =>
