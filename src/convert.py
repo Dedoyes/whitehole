@@ -9,9 +9,12 @@ src_abs_path = path.dirname (file_abs_path)
 base_abs_path = path.dirname (src_abs_path)
 data_abs_path = path.join (base_abs_path, "data")
 correct_func_abs_path = path.join (data_abs_path, "correct_func")
-dot_abs_path = path.join (correct_func_abs_path, "dot")
-func_abs_path = path.join (correct_func_abs_path, "func")
-graph_abs_path = path.join (correct_func_abs_path, "graph")
+error_func_abs_path = path.join (data_abs_path, "error_func")
+
+dot_abs_path = path.join (error_func_abs_path, "dot_before")
+func_abs_path = path.join (error_func_abs_path, "func_before")
+graph_abs_path = path.join (error_func_abs_path, "graph_before")
+
 
 print ("dot path = ", dot_abs_path)
 print ("graph path = ", graph_abs_path)
