@@ -1,0 +1,94 @@
+digraph "<global>" {
+node [shape="rect"];
+"107374182401" [label = <METHOD, 1 <global>> ]
+"107374182400" [label = <METHOD, 1 samldb_check_user_account_control_acl> ]
+"111669149696" [label = <PARAM, 1 struct samldb_ctx *ac> ]
+"111669149697" [label = <PARAM, 2 struct dom_sid *sid> ]
+"111669149698" [label = <PARAM, 3 uint32_t user_account_control> ]
+"111669149699" [label = <PARAM, 4 uint32_t user_account_control_old> ]
+"25769803776" [label = <BLOCK, 5 { int i, ret = 0; bool need_acl_check = false...> ]
+"94489280512" [label = <LOCAL, 6 int i: int> ]
+"94489280513" [label = <LOCAL, 6 int ret: int> ]
+"30064771072" [label = <<operator>.assignment, 6 ret = 0> ]
+"68719476736" [label = <IDENTIFIER, 6 ret ret = 0> ]
+"90194313216" [label = <LITERAL, 6 0 ret = 0> ]
+"94489280514" [label = <LOCAL, 7 bool need_acl_check: bool> ]
+"30064771073" [label = <<operator>.assignment, 7 need_acl_check = false> ]
+"68719476737" [label = <IDENTIFIER, 7 need_acl_check need_acl_check = false> ]
+"90194313217" [label = <LITERAL, 7 false need_acl_check = false> ]
+"94489280515" [label = <LOCAL, 8 struct ldb_result *res: ldb_result*> ]
+"94489280516" [label = <LOCAL, 9 const char * const sd_attrs[]: char*const[]> ]
+"30064771074" [label = <<operator>.assignment, 9 * const sd_attrs[] = {"ntSecurityDescriptor", N...> ]
+"68719476738" [label = <IDENTIFIER, 9 sd_attrs * const sd_attrs[] = {"ntSecurityDescriptor", N...> ]
+"30064771075" [label = <<operator>.arrayInitializer, 9 {"ntSecurityDescriptor", NULL}> ]
+"90194313218" [label = <LITERAL, 9 "ntSecurityDescriptor" {"ntSecurityDescriptor", NULL}> ]
+"68719476739" [label = <IDENTIFIER, 9 <unknown> NULL {"ntSecurityDescriptor", NULL}> ]
+"94489280517" [label = <LOCAL, 10 struct security_token *user_token: security_token*> ]
+"94489280518" [label = <LOCAL, 11 struct security_descriptor *domain_sd: security_descriptor*> ]
+"94489280519" [label = <LOCAL, 12 struct ldb_dn *domain_dn: ldb_dn*> ]
+"30064771076" [label = <<operator>.assignment, 12 *domain_dn = ldb_get_default_basedn(ldb_module_...> ]
+"68719476740" [label = <IDENTIFIER, 12 domain_dn *domain_dn = ldb_get_default_basedn(ldb_module_...> ]
+"30064771077" [label = <ldb_get_default_basedn, 12 ldb_get_default_basedn(ldb_module_get_ctx(ac->m...> ]
+"30064771078" [label = <ldb_module_get_ctx, 12 ldb_module_get_ctx(ac->module)> ]
+"30064771079" [label = <<operator>.indirectFieldAccess, 12 ac->module> ]
+"68719476741" [label = <IDENTIFIER, 12 ac ldb_module_get_ctx(ac->module)> ]
+"55834574848" [label = <FIELD_IDENTIFIER, 12 module> ]
+"94489280520" [label = <LOCAL, 13 struct ldb_context *ldb: ldb_context*> ]
+"30064771080" [label = <<operator>.assignment, 13 *ldb = ldb_module_get_ctx(ac->module)> ]
+"68719476742" [label = <IDENTIFIER, 13 ldb *ldb = ldb_module_get_ctx(ac->module)> ]
+"30064771081" [label = <ldb_module_get_ctx, 13 ldb_module_get_ctx(ac->module)> ]
+"30064771082" [label = <<operator>.indirectFieldAccess, 13 ac->module> ]
+"68719476743" [label = <IDENTIFIER, 13 ac ldb_module_get_ctx(ac->module)> ]
+"55834574849" [label = <FIELD_IDENTIFIER, 13 module> ]
+"94489280521" [label = <LOCAL, 9 <unknown> NULL: ANY> ]
+"128849018880" [label = <MODIFIER, 1 STATIC> ]
+"124554051584" [label = <METHOD_RETURN, 1 int> ]
+"25769803777" [label = <BLOCK, 1 <empty>> ]
+"120259084288" [label = <METHOD_REF, 1 samldb_check_user_account_control_acl <empty>> ]
+"124554051585" [label = <METHOD_RETURN, 1 ANY> ]
+"107374182401" -> "107374182400"
+"107374182401" -> "25769803777"
+"107374182401" -> "124554051585"
+"107374182400" -> "111669149696"
+"107374182400" -> "111669149697"
+"107374182400" -> "111669149698"
+"107374182400" -> "111669149699"
+"107374182400" -> "25769803776"
+"107374182400" -> "128849018880"
+"107374182400" -> "124554051584"
+"25769803776" -> "94489280521"
+"25769803776" -> "94489280512"
+"25769803776" -> "94489280513"
+"25769803776" -> "30064771072"
+"25769803776" -> "94489280514"
+"25769803776" -> "30064771073"
+"25769803776" -> "94489280515"
+"25769803776" -> "94489280516"
+"25769803776" -> "30064771074"
+"25769803776" -> "94489280517"
+"25769803776" -> "94489280518"
+"25769803776" -> "94489280519"
+"25769803776" -> "30064771076"
+"25769803776" -> "94489280520"
+"25769803776" -> "30064771080"
+"30064771072" -> "68719476736"
+"30064771072" -> "90194313216"
+"30064771073" -> "68719476737"
+"30064771073" -> "90194313217"
+"30064771074" -> "68719476738"
+"30064771074" -> "30064771075"
+"30064771075" -> "90194313218"
+"30064771075" -> "68719476739"
+"30064771076" -> "68719476740"
+"30064771076" -> "30064771077"
+"30064771077" -> "30064771078"
+"30064771078" -> "30064771079"
+"30064771079" -> "68719476741"
+"30064771079" -> "55834574848"
+"30064771080" -> "68719476742"
+"30064771080" -> "30064771081"
+"30064771081" -> "30064771082"
+"30064771082" -> "68719476743"
+"30064771082" -> "55834574849"
+"25769803777" -> "120259084288"
+}

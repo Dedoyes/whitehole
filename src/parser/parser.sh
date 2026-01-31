@@ -1,0 +1,14 @@
+SCRIPT_PATH=$(realpath "$0")
+SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+CPP_SOURCE_PATH="$SCRIPT_DIR/parser.cpp"
+OBJ_PATH="$SCRIPT_DIR/parser"
+TXT_FILE_PATH="$SCRIPT_DIR/test.txt"
+
+echo $CPP_SOURCE_PATH
+echo $OBJ_PATH
+
+g++ $CPP_SOURCE_PATH -o $OBJ_PATH
+
+$OBJ_PATH $TXT_FILE_PATH
+
+

@@ -5,4 +5,4 @@ SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 
 export PATH=$PATH:/home/wbt/newDisk/software/joern/joern-cli
 
-joern --script ./extract.scala
+joern --script ./generate_AST.scala
