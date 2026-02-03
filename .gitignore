@@ -4,6 +4,8 @@ data/**/*.cpp
 data/**/*.c
 data/**/*.dot
 data/**/*.csv
+data_processed/*.dot
+data_processed/**/*.dot
 *.drawio
 *.bkp
 check_rodc_critical_attribute.dot

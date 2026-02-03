@@ -12,6 +12,14 @@ bool is_num (char c) {
     return false;
 }
 
+bool is_letter (char c) {
+    if (c >= 'A' && c <= 'Z')
+        return true;
+    if (c >= 'a' && c <= 'z')
+        return true;
+    return false;
+}
+
 struct AST_node {
     int id;
     int kind;
@@ -58,9 +66,11 @@ bool is_useful (string s) {
     return true;
 }
 
-bool type_identify (string s) {
-    // true : "12525" [label = <...>]
-    // false : "12356" -> "125987"
+int type_identify (string s) {
+    // 2 : "68719" [label = <IDENTIFIER  (result) = Min(bitlen, atttypmod)> ]
+    // 2 : "23663" [label = <BLOCK <empty>> ]
+    // 1 : "12525" [label = <PARAM, 1 int flags> ]
+    // 0 : "12356" -> "125987"
     int pos = 1;
     while (true) {
         if (s[pos] == '"')
@@ -73,13 +83,28 @@ bool type_identify (string s) {
             break;
         pos++;
     }
-    if (s[pos] == '[')
-        return true;
-    return false;
+    if (s[pos] == '[') {
+        int pos = 0;
+        for (int i = 0; i < s.size (); i++)
+            if (s[i] == '<') {
+                pos = i + 1;
+                break;
+            }
+        while (true) {
+            if (!is_letter (s[pos])) 
+                break;
+            pos++;
+        }
+        if (s[pos] != ',')
+            return 2;
+        return 1;
+    }
+    return 0;
 }
 
 void extract (string s) {
-    if (type_identify (s)) {
+    int stence_type = type_identify (s);
+    if (stence_type == 1) {
         int pos = 1;
         while (true) {
             if (s[pos] == '"')
@@ -136,7 +161,7 @@ void extract (string s) {
             content += s[i];
         //cout << "num = " << num << endl;
         cout << f[num] << " " << ast_kind << " " << ast_id << " " << content << endl;
-    } else {
+    } else if (stence_type == 0) {
         int pos = 1;
         int start = 0, end = 0;
         start = 1;
@@ -165,7 +190,52 @@ void extract (string s) {
         for (int i = start; i <= end; i++)
             v += s[i];
         //cout << "u = " << u << ", v = " << v << endl;
+        if (!f.count (u) || !f.count (v)) {
+            cout << "Error : not found corresponding id" << endl;
+            exit (1);
+        }
         cout << f[u] << " " << f[v] << endl;
+    } else if (stence_type == 2) {
+        int pos = 1, start = 0, end = 0;
+        string node = "", content = "", type = "";
+        while (true) {
+            if (s[pos] == '"')
+                break;
+            pos++;
+        }
+        start = 1;
+        end = pos - 1;
+        for (int i = start; i <= end; i++)
+            node += s[i];
+        while (true) {
+            if (s[pos] == '<')
+                break;
+            pos++;
+        }
+        start = ++pos;
+        while (true) {
+            if (!is_letter (s[pos])) 
+                break;
+            pos++;
+        }
+        end = pos - 1;
+        for (int i = start; i <= end; i++)
+            type += s[i];
+        start = ++pos;
+        pos = s.size () - 1;
+        while (true) {
+            if (s[pos] == '>')
+                break;
+            pos--;
+        }
+        end = pos - 1;
+        for (int i = start; i <= end; i++)
+            content += s[i];
+        if (!f.count (node))
+            f[node] = ++cnt;
+        cout << f[node] << " " << type << " " << 0 << " " << content << endl;
+    } else {
+        cout << "Error : unknown stence!" << endl;
     }
     return;
 }
@@ -177,11 +247,18 @@ int main (int argc, char* argv[]) {
     for (int i = 1; i < argc; i++) {
         cout << "argv[" << i << "] = " << argv[i] << endl;
     }
+    if (argc < 3) {
+        cout << "Error : lack argument" << endl;
+        exit (1);
+    }
     string filePath = argv[1];
+    string outPath = argv[2];
     cout << "filePath = " << filePath << endl;
     const char* fileName = filePath.c_str ();
+    const char* outName = outPath.c_str ();
     freopen (fileName, "r", stdin);
-    cout << "fileName = " << fileName << endl;
+    freopen (outName, "w", stdout);
+    //cout << "fileName = " << fileName << endl;
     string s;
     while (getline (cin, s)) {
         if (!is_useful (s))
