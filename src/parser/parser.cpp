@@ -21,10 +21,10 @@ bool is_letter (char c) {
 }
 
 struct AST_node {
-    int id;
-    int kind;
-    string ast_kind;
-    string content;
+    int id;                    // node index
+    int kind;                  // node kind
+    string ast_kind;           // ast node kind
+    string content;            // function content
     AST_node () {
         id = kind = -1;
         ast_kind = content = "";
@@ -70,6 +70,7 @@ int type_identify (string s) {
     // 2 : "68719" [label = <IDENTIFIER  (result) = Min(bitlen, atttypmod)> ]
     // 2 : "23663" [label = <BLOCK <empty>> ]
     // 1 : "12525" [label = <PARAM, 1 int flags> ]
+    // 1 : "30064" [label = <<operator>.assignment, 7 need_acl_check = false> ]
     // 0 : "12356" -> "125987"
     int pos = 1;
     while (true) {
@@ -95,6 +96,8 @@ int type_identify (string s) {
                 break;
             pos++;
         }
+        if (s[pos] == '<')
+            return 1;
         if (s[pos] != ',')
             return 2;
         return 1;

@@ -23,16 +23,16 @@ echo $OBJ_PATH
 g++ $CPP_SOURCE_PATH -o $OBJ_PATH
 
 num=0
-for file in "$AST_BEFORE_DIR/"*
+for file in "$AST_DIR/"*
 do
     ((num++))
 done
 
 i=0
-for file in "$AST_BEFORE_DIR/"*
+for file in "$AST_DIR/"*
 do 
     echo "the $i th : $file"
-    OUTPUT_FILE_PATH="$OUTPUT_BEFORE_DIR/$i.dot"
+    OUTPUT_FILE_PATH="$OUTPUT_CORRECT_DIR/$i.dot"
     echo "$OUTPUT_FILE_PATH"
     $OBJ_PATH $file $OUTPUT_FILE_PATH
     ret=$?
