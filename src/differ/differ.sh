@@ -1,0 +1,16 @@
+SCRIPT_PATH=$(realpath "$0")
+SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+SRC_DIR=$(dirname "$SCRIPT_DIR")
+BASE_DIR=$(dirname "$SRC_DIR")
+PROCESSED_DIR="$BASE_DIR/data_processed"
+DOT_AFTER_DIR="$PROCESSED_DIR/dot_after"
+DOT_BEFORE_DIR="$PROCESSED_DIR/dot_error"
+DOT_CORRECT_DIR="$PROCESSED_DIR/dot_correct"
+DIFF_CORRECT_DIR="$PROCESSED_DIR/diff_correct"
+DIFF_ERROR_DIR="$PROCESSED_DIR/diff_error"
+SRC_DIR="$BASE_DIR/src"
+DIFFER_DIR="$SRC_DIR/differ"
+CPP_PATH="$DIFFER_DIR/differ.cpp"
+OBJ_PATH="$DIFFER_DIR/differ"
+
+g++ $CPP_PATH -o $OBJ_PATH
