@@ -13,8 +13,4 @@ dot_abs_path = path.join (correct_func_abs_path, "dot")
 func_abs_path = path.join (correct_func_abs_path, "func")
 graph_abs_path = path.join (correct_func_abs_path, "graph")
 
-npy_path = path.join (graph_abs_path, "1.npy")
-
-arr = np.load (npy_path)
-print (arr)
-print (arr.shape)
+npy_abs_path = path.join ("../data/correct_func/graph/")

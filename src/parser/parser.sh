@@ -37,7 +37,7 @@ do
     $OBJ_PATH $file $OUTPUT_FILE_PATH
     ret=$?
     if [ $ret -ne 0 ]; then
-        echo "parser run file!"
+        echo "parser run fail!"
         echo "Error file : $file"
         exit 1
     fi

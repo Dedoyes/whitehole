@@ -1,4 +1,5 @@
 #include <bits/stdc++.h>
+#include <fstream>
 #define LL long long 
 #define mod %
 
@@ -32,8 +33,8 @@ struct ASTnode {
         ast_kind = _ast_kind;
         content = _content;
     }
-    void print () {
-        cout << id << " " << astid << " " << ast_kind << " " << content << endl;
+    void print (ofstream& stream) {
+        stream << id << " " << astid << " " << ast_kind << " " << content << endl;
     }
     bool operator == (const ASTnode& node) const {
         return (this->id == node.id) && (this->astid == node.astid) &&
@@ -52,17 +53,17 @@ struct Diff {
     // 3 -> delEdge
     int u, v;  // Edge start and end
     ASTnode node; // add or delete AST node
-    void print () {
+    void print (ofstream& stream) {
         if (this->type == 0) {
-            cout << "add : ";
-            this->node.print ();
+            stream << "add ";
+            this->node.print (stream);
         } else if (this->type == 1) {
-            cout << "delete : ";
-            this->node.print ();
+            stream << "delete ";
+            this->node.print (stream);
         } else if (this->type == 2) {
-            cout << "add Edge : " << u << ", " << v << endl;
+            stream << "addEdge " << u << " " << v << endl;
         } else if (this->type == 3) {
-            cout << "delete Edge : " << u << ", " << v << endl;
+            stream << "deleteEdge : " << u << " " << v << endl;
         } else {
             cout << "Diff type Error !";
             exit (1);
@@ -74,10 +75,10 @@ struct AST {
     int n;
     ASTnode node[MAXN];
     set <int> G[MAXN];     // linked forward star
-    void print () {
+    void print (ofstream& stream) {
         cout << "n = " << n << endl;
         for (int i = 1; i <= n; i++) {
-            node[i].print ();
+            node[i].print (stream);
         }
         for (int i = 1; i <= n; i++) {
             for (auto x : G[i]) {
@@ -184,13 +185,14 @@ int main (int argc, char* argv[]) {
     cout << "output_path = " << output_path << endl;
     ifstream fi_before (input_before_path);
     ifstream fi_after (input_after_path);
+    ofstream fi_out (output_path);
     readFile (tree_before, fi_before);
     readFile (tree_after, fi_after);
     //tree_before.print ();
     //tree_after.print ();
     vector <Diff> diff_vec = getDiff (tree_before, tree_after);
     for (auto diff : diff_vec) {
-        diff.print ();
+        diff.print (fi_out);
     }
     return 0;
 }

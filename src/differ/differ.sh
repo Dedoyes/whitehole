@@ -19,3 +19,32 @@ TEST_OUTPUT_PATH="$DIFF_TEST_DIR/diff.dot"
 g++ $CPP_PATH -o $OBJ_PATH
 
 $OBJ_PATH $TEST_INPUT_BEFORE_PATH $TEST_INPUT_AFTER_PATH $TEST_OUTPUT_PATH
+
+echo $DOT_AFTER_DIR
+
+num=0
+for file in "$DOT_AFTER_DIR/"* 
+do 
+    #echo $file
+    ((num++))
+done
+
+echo $num
+
+for ((i=0; i<num; i++))
+do
+    file_before="$DOT_BEFORE_DIR/$i.dot"
+    file_after="$DOT_AFTER_DIR/$i.dot"
+    file_out="$DIFF_GENERATE_DIR/$i.dot"
+    $OBJ_PATH $file_before $file_after $file_out
+    ret=$?
+    if [ $ret -ne 0 ]; then
+        echo "differ run fail!"
+        echo "the number is $i" 
+        exit 1
+    fi
+    progress=$(echo "scale = 4; 100 * $i / $num" | bc)
+    #echo $file_before
+    #echo $file_after
+    #echo $file_out
+done
