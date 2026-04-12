@@ -1,7 +1,7 @@
 import os.path as path
 import torch
 import attn_pool_project
-from dataclasses import dataclass
+import policy
 from transformers import BartTokenizer, BartForConditionalGeneration
 
 abs_path = path.abspath (__file__)
@@ -28,8 +28,27 @@ class CellGraph :
     def __init__ (self, n : int, cells : list[Cell], G : list[list[int]]) :
         self.n = n
         self.cells = cells
+        self.alive = []
         self.G = G
         self.spread = []
+        self.update_policy = policy.DeepCell (d=1538, num_layer=4)
+        self.spread_policy = policy.DeepCell (d=1538, num_layer=4)
+        self.alive_policy = policy.DicideBlock (d=1538, num_layer=6)
+        self.dead_policy = policy.DicideBlock (d=1538, num_layer=6)
+    def print (self) :
+        print ("cell number = ", self.n, end="")
+        for cell in self.cells :
+            cell.print ()
+        for u in range (0, self.n) :
+            for v in self.G[u] :
+                print ("(", u, ",", v, end=") ")
+        print ("cell living condition : ")
+        for x in self.alive :
+            print (x, end=" ")
+    def update (self, T : int) :
+        for t in range (T) :
+
+        
 
 class ASTNode :
     def __init__ (self, node_id : int, ast_kind : str, ast_id : int, content : str) :
@@ -62,7 +81,7 @@ class AST :
                     ast_id = int (parts[2])
                     content = parts[3]
                     self.n += 1
-                    self.nodes.append (ASTNode (node_id, ast_kind, ast_id, content))
+                    self.nodes.append (ASTNode (node_id - 1, ast_kind, ast_id, content))
                     self.degs.append (0)
                     self.G.append ([])
                 else :
@@ -73,7 +92,7 @@ class AST :
 
     def print (self) :
         print ("n = ", self.n)
-        for i in range (1, self.n + 1) :
+        for i in range (0, self.n) :
             self.nodes[i].print ()
             print ("<", end="")
             for v in self.G[i] :
@@ -99,18 +118,30 @@ def main () :
     cells = []
     print (type (ast.nodes))
     for node in ast.nodes :
-        print ("ast_kind = ", node.ast_kind)
-        print ("content = ", node.content)
         ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt")
         ast_kind_latent = model.model.encoder (**ast_kind_input).last_hidden_state
         content_input = tokenizer (node.content, return_tensors="pt")
         content_latent = model.model.encoder (**content_input).last_hidden_state
-        print (ast_kind_latent)
-        print (ast_kind_latent.shape)
-        print (content_latent.shape)
-        latent0 = ast_kind_pooler (ast_kind_latent)  # (B, d)
-        latent1 = content_pooler (content_latent)    # (B, d)
-        break
+        latent0 = ast_kind_pooler (ast_kind_latent).unsqueeze (1)  # (B, 1, d)
+        latent1 = content_pooler (content_latent).unsqueeze (1)    # (B, 1, d)
+        latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
+        latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
+        latent = torch.cat ([latent0, latent1, latent2, latent3], dim=2)   # (1, 1, 1538)
+        cells.append (Cell (node.node_id, latent))
+    print (len (cells))
+    for cell in cells :
+        cell.print ()
+        #break
+    cg = CellGraph (len (cells), cells, ast.G)
+    for _ in range (cg.n) :
+        cg.alive.append (True)
+    cg.print ()
+    for cell in cg.cells :
+        cg.spread.append (cell.latent)
+   
+    # initialize cell graph and its spread tensor
+    
+
 
     return 0
 
