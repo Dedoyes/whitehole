@@ -3,6 +3,7 @@ import torch
 import attn_pool_project
 import policy
 from transformers import BartTokenizer, BartForConditionalGeneration
+import torch.nn.functional as F
 
 abs_path = path.abspath (__file__)
 model_path = path.dirname (abs_path)
@@ -24,16 +25,81 @@ class Cell :
         print ("id = ", self.id, end = " ")
         print ("latent = ", self.latent)
 
+    def modulus (self) :
+        return torch.sqrt (torch.sum (self.latent ** 2))
+
+class ExpectGraph :
+    def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], alive : dict[int, bool]) :
+        self.n = 0
+        self.cells = []
+        for i in range (0, n) :
+            if alive[i] :
+                self.cells.append (cells[i])
+                self.n += 1
+        self.G = G
+    def print (self) :
+        print ("cell number = ", self.n, end="")
+        for cell in self.cells :
+            cell.print ()
+        for u in range (0, self.n) :
+            for v in self.G[u] :
+                print ("(", u, ",", v, end=") ")
+
+def SubtreeSquareSum (tree : ExpectGraph, u : int, vis : dict[int, bool]) :
+    vis[u] = True
+    ret = torch.sum (tree.cells[u].latent ** 2)
+    for v in tree.G[u] :
+        if (vis[v]) :
+            continue
+        ret += SubtreeSquareSum (tree, v, vis)
+    return ret
+
+def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : dict[int, bool], vis2 : dict[int, bool]) :
+    vis1[u1] = True
+    vis2[u2] = True
+    latent_pred = pred.cells[u1].latent
+    latent_target = target.cells[u2].latent
+    ret = F.mse_loss (latent_pred, latent_target)
+    limit = min (len (pred.G[u1]), len (target.G[u2]))
+    for i in range (0, limit) :
+        v1 = pred.G[u1][i]
+        v2 = target.G[u2][i]
+        if (vis1[v1]) :
+            continue
+        if (vis2[v1]) :
+            continue
+        ret += dfs (pred, target, v1,v2, vis1, vis2)
+    for i in range (limit, len (pred.G[u1])) :
+        u = pred.G[u1][i]
+        if (vis1[u]) :
+            continue
+        ret += SubtreeSquareSum (pred, u, vis1)
+    for i in range (limit, len (target.G[u2])) :
+        u = target.G[u2][i]
+        if (vis2[u]) :
+            continue
+        ret += SubtreeSquareSum (target, u, vis2)
+    return ret
+
+def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph) :
+    vis1 = {}
+    vis2 = {}
+    return dfs (g1, g2, 0, 0, vis1, vis2)
+
 class CellGraph :
-    def __init__ (self, n : int, cells : list[Cell], G : list[list[int]]) :
+    def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], degs : list[int]) :
         self.n = n
         self.cells = cells
-        self.alive = []
+        self.alive = {}
+        for i in range (0, self.n) :
+            self.alive[i] = True
+        self.degs = degs
         self.G = G
         self.spread = []
+        self.receive = []
         self.update_policy = policy.DeepCell (d=1538, num_layer=4)
         self.spread_policy = policy.DeepCell (d=1538, num_layer=4)
-        self.alive_policy = policy.DicideBlock (d=1538, num_layer=6)
+        self.copy_policy = policy.DicideBlock (d=1538, num_layer=6)
         self.dead_policy = policy.DicideBlock (d=1538, num_layer=6)
     def print (self) :
         print ("cell number = ", self.n, end="")
@@ -45,10 +111,38 @@ class CellGraph :
         print ("cell living condition : ")
         for x in self.alive :
             print (x, end=" ")
-    def update (self, T : int) :
-        for t in range (T) :
-
-        
+    def update (self, obj_graph : ExpectGraph) :
+        for i in range (self.n) :
+            if self.alive[i] :
+                latents = []
+                for j in self.G[i] :
+                    if self.alive[j] :
+                        latents.append (self.spread[j])
+                self.receive[i] = torch.cat (latents, dim=1)
+        pre_graph = ExpectGraph (self.n, self.cells, self.G, self.alive)
+        exp_graph = ExpectGraph (self.n, self.cells, self.G, self.alive)
+        for i in range (self.n) :
+            if self.alive[i] :
+                update_latent = self.update_policy (self.cells[i].latent, self.receive[i])
+                spread_latent = self.spread_policy (self.cells[i].latent, self.receive[i])
+                copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
+                if self.degs != 1 :
+                    exp_graph.cells[i].latent = update_latent
+                    copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
+                    exp_graph.cells.append (Cell (exp_graph.n, spread_latent * copy_prob))
+                    exp_graph.G[exp_graph.n].append (i)
+                    exp_graph.G[i].append (exp_graph.n)
+                    exp_graph.n += 1 
+                else :
+                    dead_prob = self.dead_policy (self.cells[i].latent, self.receive[i])
+                    copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
+                    exp_graph.cells[i].latent = (1.0 - dead_prob) * exp_graph.cells[i].latents
+                    exp_graph.cells.append (Cell (exp_graph.n, spread_latent * copy_prob * (1.0 - dead_prob)))
+                    exp_graph.G[exp_graph.n].append (i)
+                    exp_graph.G[i].append (exp_graph.n)
+                    exp_graph.n += 1
+        pre_dis = ExpectGraphMSE (pre_graph, obj_graph)
+        exp_dis = ExpectGraphMSE (exp_graph, obj_graph)
 
 class ASTNode :
     def __init__ (self, node_id : int, ast_kind : str, ast_id : int, content : str) :
@@ -132,7 +226,7 @@ def main () :
     for cell in cells :
         cell.print ()
         #break
-    cg = CellGraph (len (cells), cells, ast.G)
+    cg = CellGraph (len (cells), cells, ast.G, ast.degs)
     for _ in range (cg.n) :
         cg.alive.append (True)
     cg.print ()
