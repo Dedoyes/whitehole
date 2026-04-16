@@ -227,8 +227,8 @@ def main () :
         cell.print ()
         #break
     cg = CellGraph (len (cells), cells, ast.G, ast.degs)
-    for _ in range (cg.n) :
-        cg.alive.append (True)
+    for i in range (cg.n) :
+        cg.alive[i] = True
     cg.print ()
     for cell in cg.cells :
         cg.spread.append (cell.latent)
