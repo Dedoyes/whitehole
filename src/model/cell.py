@@ -1,8 +1,8 @@
 import os.path as path
+from collections import defaultdict
 import random
 import torch
 import copy
-import attn_pool_project
 import policy
 from transformers import BartTokenizer, BartForConditionalGeneration
 import torch.nn.functional as F
@@ -14,6 +14,16 @@ base_path = path.dirname (src_path)
 data_processed_path = path.join (base_path, "data_processed")
 dot_before_path = path.join (data_processed_path, "dot_before")
 dot_file_path = path.join (dot_before_path, "0.dot")
+
+def get_degs (n : int, G : list[list[int]]) :
+    degs = []
+    for i in range (0, n) :
+        degs.append (0)
+    for u in range (0, n) :
+        for v in G[u] :
+            degs[u] += 1
+            degs[v] += 1
+    return degs
 
 def is_num (s) :
     return s.isdigit ()
@@ -84,8 +94,8 @@ def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : di
     return ret
 
 def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph) :
-    vis1 = {}
-    vis2 = {}
+    vis1 = defaultdict (bool)
+    vis2 = defaultdict (bool)
     return dfs (g1, g2, 0, 0, vis1, vis2)
 
 class CellGraph :
@@ -99,10 +109,8 @@ class CellGraph :
         self.G = copy.deepcopy (G)
         self.spread = []
         self.receive = []
-        self.update_policy = policy.DeepCell (d=1538, num_layer=4)
-        self.spread_policy = policy.DeepCell (d=1538, num_layer=4)
-        self.copy_policy = policy.DicideBlock (d=1538, num_layer=6)
-        self.dead_policy = policy.DicideBlock (d=1538, num_layer=6)
+        for i in range (0, self.n) :
+            self.spread.append (self.cells[i].latent)
 
     def print (self) :
         print ("cell number = ", self.n, end="")
@@ -127,12 +135,13 @@ class CellGraph :
             else :
                 self.receive.append (None)
 
-    def train (self, obj_graph : ExpectGraph, learning_rate=1e-3) :
+    def train (self, obj_graph : ExpectGraph, update_policy, spread_policy, 
+        copy_policy, dead_policy, learning_rate=1e-3) :
         optimizer = torch.optim.Adam (
-            list (self.update_policy.parameters ()) +
-            list (self.spread_policy.parameters ()) +
-            list (self.copy_policy.parameters ()) +
-            list (self.dead_policy.parameters ()),
+            list (update_policy.parameters ()) +
+            list (spread_policy.parameters ()) +
+            list (copy_policy.parameters ()) +
+            list (dead_policy.parameters ()),
             lr = learning_rate
         )
         self.getReceive ()
@@ -146,15 +155,15 @@ class CellGraph :
         new_spread = []
         for i in range (self.n) :
             if self.alive[i] :
-                update_latent = self.update_policy (self.cells[i].latent, self.receive[i])
-                spread_latent = self.spread_policy (self.cells[i].latent, self.receive[i])
+                update_latent = update_policy (self.cells[i].latent, self.receive[i])
+                spread_latent = spread_policy (self.cells[i].latent, self.receive[i])
                 new_latent.append (update_latent)
                 new_spread.append (spread_latent)
                 self.spread[i] = spread_latent
-                copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
+                copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
                 if self.degs[i] != 1 :
                     exp_graph.cells[i].latent = update_latent
-                    copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
+                    copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
                     exp_graph.cells.append (Cell (exp_graph.n, spread_latent * copy_prob))
                     exp_graph.G.append ([])
                     exp_graph.G[exp_graph.n].append (i)
@@ -163,8 +172,8 @@ class CellGraph :
                     copy_prob_dict[i] = copy_prob
                     alive_prob_dict[i] = type (copy_prob) (1.0)
                 else :
-                    dead_prob = self.dead_policy (self.cells[i].latent, self.receive[i])
-                    copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
+                    dead_prob = dead_policy (self.cells[i].latent, self.receive[i])
+                    copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
                     exp_graph.cells[i].latent = (1.0 - dead_prob) * exp_graph.cells[i].latent
                     exp_graph.cells.append (Cell (exp_graph.n, spread_latent * copy_prob * (1.0 - dead_prob)))
                     exp_graph.G.append ([])
@@ -202,6 +211,7 @@ class CellGraph :
                         self.G[i].append (new_id)
                         self.G[new_id].append (i)
                         self.cells.append (Cell (new_id, new_spread[i]))
+                        self.spread.append (new_spread[i])
                         self.alive[new_id] = True
                         self.degs.append (1)
                         self.degs[i] += 1
@@ -211,7 +221,30 @@ class CellGraph :
                             self.degs[v] -= 1
                     self.alive[i] = False
 
-        
+    def loadFile (self, file_path : str, tokenizer, model) :
+        ast = AST (file_path)
+        cells = []
+        for node in ast.nodes :
+            ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt")
+            with torch.no_grad () :
+                ast_kind_latent = model.model.encoder (**ast_kind_input).last_hidden_state
+            content_input = tokenizer (node.content, return_tensors="pt")
+            with torch.no_grad () :
+                content_latent = model.model.encoder (**content_input).last_hidden_state
+            latent0 = ast_kind_latent.mean (dim=1, keepdim=True)  # (B, 1, d)
+            latent1 = content_latent.mean (dim=1, keepdim=True)    # (B, 1, d)
+            latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
+            latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
+            latent = torch.cat ([latent0, latent1, latent2, latent3], dim=2)   # (1, 1, 1538)
+            cells.append (Cell (node.node_id, latent))
+        self.n = ast.n
+        self.cells = cells
+        self.alive = {}
+        for i in range (0, self.n) :
+            self.alive[i] = True
+        self.degs = get_degs (self.n, ast.G)
+        self.G = ast.G
+
 
 class ASTNode :
     def __init__ (self, node_id : int, ast_kind : str, ast_id : int, content : str) :
@@ -274,19 +307,22 @@ def main () :
     tokenizer = BartTokenizer.from_pretrained ("facebook/bart-base")
     model = BartForConditionalGeneration.from_pretrained ("facebook/bart-base")
     print ("initialize success.")
-    ast_kind_pooler = attn_pool_project.AttnPoolProject (dim=768)
-    content_pooler = attn_pool_project.AttnPoolProject (dim=768)
+    #ast_kind_pooler = attn_pool_project.AttnPoolProject (dim=768)
+    #content_pooler = attn_pool_project.AttnPoolProject (dim=768)
     ast = AST (dot_file_path)
+    print (type (dot_file_path))
     ast.print_degs ()
     cells = []
     print (type (ast.nodes))
     for node in ast.nodes :
         ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt")
-        ast_kind_latent = model.model.encoder (**ast_kind_input).last_hidden_state
+        with torch.no_grad () :
+            ast_kind_latent = model.model.encoder (**ast_kind_input).last_hidden_state
         content_input = tokenizer (node.content, return_tensors="pt")
-        content_latent = model.model.encoder (**content_input).last_hidden_state
-        latent0 = ast_kind_pooler (ast_kind_latent).unsqueeze (1)  # (B, 1, d)
-        latent1 = content_pooler (content_latent).unsqueeze (1)    # (B, 1, d)
+        with torch.no_grad () :
+            content_latent = model.model.encoder (**content_input).last_hidden_state
+        latent0 = ast_kind_latent.mean (dim=1, keepdim=True)  # (B, 1, d)
+        latent1 = content_latent.mean (dim=1, keepdim=True)    # (B, 1, d)
         latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
         latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
         latent = torch.cat ([latent0, latent1, latent2, latent3], dim=2)   # (1, 1, 1538)
@@ -296,16 +332,17 @@ def main () :
         cell.print ()
         #break
     cg = CellGraph (len (cells), cells, ast.G, ast.degs)
-    for i in range (cg.n) :
-        cg.alive[i] = True
     cg.print ()
-    for cell in cg.cells :
-        cg.spread.append (cell.latent)
-   
     # initialize cell graph and its spread tensor
     
+    update_policy = policy.DeepCell (d=1538, num_layer=4)
+    spread_policy = policy.DeepCell (d=1538, num_layer=4)
+    copy_policy = policy.DicideBlock (d=1538, num_layer=6)
+    dead_policy = policy.DicideBlock (d=1538, num_layer=6)
+    # initialize the policy parameters
 
-
+    
+    
     return 0
 
 if __name__ == '__main__' :
