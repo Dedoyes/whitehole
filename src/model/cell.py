@@ -1,5 +1,7 @@
 import os.path as path
+import random
 import torch
+import copy
 import attn_pool_project
 import policy
 from transformers import BartTokenizer, BartForConditionalGeneration
@@ -66,7 +68,7 @@ def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : di
         v2 = target.G[u2][i]
         if (vis1[v1]) :
             continue
-        if (vis2[v1]) :
+        if (vis2[v2]) :
             continue
         ret += dfs (pred, target, v1,v2, vis1, vis2)
     for i in range (limit, len (pred.G[u1])) :
@@ -89,18 +91,19 @@ def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph) :
 class CellGraph :
     def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], degs : list[int]) :
         self.n = n
-        self.cells = cells
+        self.cells = copy.deepcopy (cells)
         self.alive = {}
         for i in range (0, self.n) :
             self.alive[i] = True
-        self.degs = degs
-        self.G = G
+        self.degs = copy.deepcopy (degs)
+        self.G = copy.deepcopy (G)
         self.spread = []
         self.receive = []
         self.update_policy = policy.DeepCell (d=1538, num_layer=4)
         self.spread_policy = policy.DeepCell (d=1538, num_layer=4)
         self.copy_policy = policy.DicideBlock (d=1538, num_layer=6)
         self.dead_policy = policy.DicideBlock (d=1538, num_layer=6)
+
     def print (self) :
         print ("cell number = ", self.n, end="")
         for cell in self.cells :
@@ -111,38 +114,104 @@ class CellGraph :
         print ("cell living condition : ")
         for x in self.alive :
             print (x, end=" ")
-    def update (self, obj_graph : ExpectGraph) :
+
+    def getReceive (self) :
+        self.receive = []
         for i in range (self.n) :
             if self.alive[i] :
                 latents = []
                 for j in self.G[i] :
                     if self.alive[j] :
                         latents.append (self.spread[j])
-                self.receive[i] = torch.cat (latents, dim=1)
-        pre_graph = ExpectGraph (self.n, self.cells, self.G, self.alive)
+                self.receive.append (torch.cat (latents, dim=1))
+            else :
+                self.receive.append (None)
+
+    def train (self, obj_graph : ExpectGraph, learning_rate=1e-3) :
+        optimizer = torch.optim.Adam (
+            list (self.update_policy.parameters ()) +
+            list (self.spread_policy.parameters ()) +
+            list (self.copy_policy.parameters ()) +
+            list (self.dead_policy.parameters ()),
+            lr = learning_rate
+        )
+        self.getReceive ()
         exp_graph = ExpectGraph (self.n, self.cells, self.G, self.alive)
+        #pre_graph = copy.deepcopy (exp_graph)
+        alive_prob_dict = {}
+        copy_prob_dict = {}
+        alive_sample = {}
+        copy_sample = {}
+        new_latent = []
+        new_spread = []
         for i in range (self.n) :
             if self.alive[i] :
                 update_latent = self.update_policy (self.cells[i].latent, self.receive[i])
                 spread_latent = self.spread_policy (self.cells[i].latent, self.receive[i])
+                new_latent.append (update_latent)
+                new_spread.append (spread_latent)
+                self.spread[i] = spread_latent
                 copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
-                if self.degs != 1 :
+                if self.degs[i] != 1 :
                     exp_graph.cells[i].latent = update_latent
                     copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
                     exp_graph.cells.append (Cell (exp_graph.n, spread_latent * copy_prob))
+                    exp_graph.G.append ([])
                     exp_graph.G[exp_graph.n].append (i)
                     exp_graph.G[i].append (exp_graph.n)
                     exp_graph.n += 1 
+                    copy_prob_dict[i] = copy_prob
+                    alive_prob_dict[i] = type (copy_prob) (1.0)
                 else :
                     dead_prob = self.dead_policy (self.cells[i].latent, self.receive[i])
                     copy_prob = self.copy_policy (self.cells[i].latent, self.receive[i])
-                    exp_graph.cells[i].latent = (1.0 - dead_prob) * exp_graph.cells[i].latents
+                    exp_graph.cells[i].latent = (1.0 - dead_prob) * exp_graph.cells[i].latent
                     exp_graph.cells.append (Cell (exp_graph.n, spread_latent * copy_prob * (1.0 - dead_prob)))
+                    exp_graph.G.append ([])
                     exp_graph.G[exp_graph.n].append (i)
                     exp_graph.G[i].append (exp_graph.n)
                     exp_graph.n += 1
-        pre_dis = ExpectGraphMSE (pre_graph, obj_graph)
-        exp_dis = ExpectGraphMSE (exp_graph, obj_graph)
+                    copy_prob_dict[i] = copy_prob
+                    alive_prob_dict[i] = type (copy_prob) (1.0) - dead_prob
+            else :
+                new_latent.append (None)
+                new_spread.append (None)
+        mse_loss = ExpectGraphMSE (exp_graph, obj_graph)
+        optimizer.zero_grad ()
+        mse_loss.backward ()
+        optimizer.step ()
+        # train the policy network
+        
+        for i in range (self.n) :
+            if self.alive[i] :
+                alive_sample[i] = int (random.random () < alive_prob_dict[i])
+                if alive_sample[i] == 0 :
+                    copy_sample[i] = 0
+                else :
+                    copy_sample[i] = int (random.random () < copy_prob_dict[i])
+        # caculate the alive and copy probility
+        pre_n = self.n
+        for i in range (pre_n) :
+            if self.alive[i] :
+                if alive_sample[i] :
+                    self.cells[i].latent = new_latent[i]
+                    if copy_sample[i] :
+                        new_id = self.n
+                        self.n += 1
+                        self.G.append ([])
+                        self.G[i].append (new_id)
+                        self.G[new_id].append (i)
+                        self.cells.append (Cell (new_id, new_spread[i]))
+                        self.alive[new_id] = True
+                        self.degs.append (1)
+                        self.degs[i] += 1
+                else :
+                    for v in self.G[i] :
+                        if self.alive[v] :
+                            self.degs[v] -= 1
+                    self.alive[i] = False
+
+        
 
 class ASTNode :
     def __init__ (self, node_id : int, ast_kind : str, ast_id : int, content : str) :
