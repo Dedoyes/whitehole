@@ -138,10 +138,10 @@ class CellGraph :
             if self.alive[i] :
                 latents = []
                 for j in self.G[i] :
-                    print ("i = ", end="")
-                    print (i, end=" ")
-                    print ("j = ", end="")
-                    print (j)
+                    #print ("i = ", end="")
+                    #print (i, end=" ")
+                    #print ("j = ", end="")
+                    #print (j)
                     if self.alive[j] :
                         latents.append (self.spread[j])
                 self.receive.append (torch.cat (latents, dim=1).detach ())
@@ -299,7 +299,10 @@ class AST :
                 ast_kind = parts[1]
                 if not is_num (ast_kind) :
                     ast_id = int (parts[2])
-                    content = parts[3]
+                    if len (parts) == 4 : 
+                        content = parts[3]
+                    else :
+                        content = "None"
                     self.n += 1
                     self.nodes.append (ASTNode (node_id - 1, ast_kind, ast_id, content))
                     self.degs.append (0)
