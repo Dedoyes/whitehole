@@ -1,4 +1,5 @@
 import os.path as path
+import math
 from collections import defaultdict
 import random
 import torch
@@ -16,6 +17,9 @@ data_processed_path = path.join (base_path, "data_processed")
 dot_before_path = path.join (data_processed_path, "dot_before")
 dot_after_path = path.join (data_processed_path, "dot_after")
 dot_file_path = path.join (dot_before_path, "0.dot")
+black_list_path = path.join (base_path, "blacklist.txt")
+
+black_list = []
 
 def clone_cells (cells) :
     new_cells = []
@@ -207,7 +211,9 @@ class CellGraph :
         print ("train complete")
         # train the policy network
         print ("mse_loss = ", end="")
-        print (mse_loss)
+        print (mse_loss, end = " ")
+        print ("average loss = ", end="")
+        print (mse_loss / self.n)
         for i in range (self.n) :
             if self.alive[i] :
                 alive_sample[i] = int (random.random () < alive_prob_dict[i])
@@ -224,16 +230,16 @@ class CellGraph :
                     if copy_sample[i] :
                         new_id = self.n
                         self.n += 1
-                        print ("when i is ", i, end=" ,")
-                        print ("new_id is", new_id, end="")
+                        #print ("when i is ", i, end=" ,")
+                        #print ("new_id is", new_id, end="")
                         self.G.append ([])
                         self.G[i].append (new_id)
                         self.G[new_id].append (i)
                         self.cells.append (Cell (new_id, new_spread[i].detach ()))
                         self.spread.append (new_spread[i].detach ())
                         self.alive[new_id] = True
-                        print ("new_id = ", end="")
-                        print (new_id)
+                        #print ("new_id = ", end="")
+                        #print (new_id)
                         self.degs.append (1)
                         self.degs[i] += 1
                 else :
@@ -242,21 +248,21 @@ class CellGraph :
                             self.degs[v] -= 1
                     self.alive[i] = False
 
-    def loadFile (self, file_path : str, tokenizer, model) :
+    def loadFile (self, file_path : str, tokenizer, model, device) :
         print ("loadFile start")
         ast = AST (file_path)
         cells = []
         for node in ast.nodes :
-            ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt")
+            ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt").to (device)
             with torch.no_grad () :
                 ast_kind_latent = model.model.encoder (**ast_kind_input).last_hidden_state
-            content_input = tokenizer (node.content, return_tensors="pt")
+            content_input = tokenizer (node.content, return_tensors="pt").to (device)
             with torch.no_grad () :
                 content_latent = model.model.encoder (**content_input).last_hidden_state
-            latent0 = ast_kind_latent.mean (dim=1, keepdim=True)  # (B, 1, d)
-            latent1 = content_latent.mean (dim=1, keepdim=True)    # (B, 1, d)
-            latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
-            latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
+            latent0 = ast_kind_latent.mean (dim=1, keepdim=True).to (device)  # (B, 1, d)
+            latent1 = content_latent.mean (dim=1, keepdim=True).to (device)    # (B, 1, d)
+            latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
+            latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
             latent = torch.cat ([latent0, latent1, latent2, latent3], dim=2)   # (1, 1, 1538)
             cells.append (Cell (node.node_id, latent))
         self.n = ast.n
@@ -330,9 +336,10 @@ class AST :
         
 
 def main () :
+    device = torch.device ("cuda" if torch.cuda.is_available () else "cpu")
     print ("initialize bart.")
     tokenizer = BartTokenizer.from_pretrained ("facebook/bart-base")
-    model = BartForConditionalGeneration.from_pretrained ("facebook/bart-base")
+    model = BartForConditionalGeneration.from_pretrained ("facebook/bart-base").to (device)
     print ("initialize success.")
     #ast_kind_pooler = attn_pool_project.AttnPoolProject (dim=768)
     #content_pooler = attn_pool_project.AttnPoolProject (dim=768)
@@ -342,16 +349,16 @@ def main () :
     cells = []
     print (type (ast.nodes))
     for node in ast.nodes :
-        ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt")
+        ast_kind_input = tokenizer (node.ast_kind, return_tensors="pt").to (device)
         with torch.no_grad () :
             ast_kind_latent = model.model.encoder (**ast_kind_input).last_hidden_state
-        content_input = tokenizer (node.content, return_tensors="pt")
+        content_input = tokenizer (node.content, return_tensors="pt").to (device)
         with torch.no_grad () :
             content_latent = model.model.encoder (**content_input).last_hidden_state
-        latent0 = ast_kind_latent.mean (dim=1, keepdim=True)  # (B, 1, d)
-        latent1 = content_latent.mean (dim=1, keepdim=True)    # (B, 1, d)
-        latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
-        latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1) # (1, 1, 1)
+        latent0 = ast_kind_latent.mean (dim=1, keepdim=True).to (device)  # (B, 1, d)
+        latent1 = content_latent.mean (dim=1, keepdim=True).to (device)    # (B, 1, d)
+        latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
+        latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
         latent = torch.cat ([latent0, latent1, latent2, latent3], dim=2)   # (1, 1, 1538)
         cells.append (Cell (node.node_id, latent))
     print (len (cells))
@@ -363,13 +370,12 @@ def main () :
     cg.print ()
     # initialize cell graph and its spread tensor
     
-    update_policy = policy.DeepCell (d=1538, num_layer=4)
-    spread_policy = policy.DeepCell (d=1538, num_layer=4)
-    copy_policy = policy.DicideBlock (d=1538, num_layer=6)
-    dead_policy = policy.DicideBlock (d=1538, num_layer=6)
-    learning_rate = 1e-3
+    update_policy = policy.DeepCell (d=1538, num_layer=4).to (device)
+    spread_policy = policy.DeepCell (d=1538, num_layer=4).to (device)
+    copy_policy = policy.DicideBlock (d=1538, num_layer=6).to (device)
+    dead_policy = policy.DicideBlock (d=1538, num_layer=6).to (device)
+    learning_rate = 1e-6
     epoch = 10
-    T = 3
     # initialize the policy parameters
 
     file_num = 0
@@ -377,17 +383,27 @@ def main () :
         print ("epoch : ", end="")
         print (epoch)
         for file in os.listdir (dot_before_path) :
-            print ("file name is ", end="")
-            print (file)
-            error_path = os.path.join (dot_before_path, file)
-            right_path = os.path.join (dot_after_path, file)
-            cg.loadFile (error_path, tokenizer=tokenizer, model=model)
-            aid_graph.loadFile (right_path, tokenizer=tokenizer, model=model)
-            right_expect_graph = ExpectGraph (aid_graph.n, aid_graph.cells, aid_graph.G, aid_graph.alive)
-            for t in range (T) :
-                cg.train (right_expect_graph, update_policy, spread_policy, copy_policy, dead_policy,
-                          learning_rate=learning_rate)
-            file_num += 1
+            if file in black_list :
+                continue
+            try :
+                print ("file name is ", end="")
+                print (file)
+                error_path = os.path.join (dot_before_path, file)
+                right_path = os.path.join (dot_after_path, file)
+                cg.loadFile (error_path, tokenizer=tokenizer, model=model, device=device)
+                aid_graph.loadFile (right_path, tokenizer=tokenizer, model=model, device=device)
+                right_expect_graph = ExpectGraph (aid_graph.n, aid_graph.cells, aid_graph.G, aid_graph.alive)
+                T = 1
+                for _ in range (T) :
+                    cg.train (right_expect_graph, update_policy, spread_policy, copy_policy, dead_policy,
+                              learning_rate=learning_rate)
+                file_num += 1
+            except Exception as e :
+                print (f"[CRASH] {file}: {e}")
+                with open (black_list_path, "a") as f :
+                    f.write (file + "\n")
+                black_list.append (file)
+                continue
     
     return 0
 
