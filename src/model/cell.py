@@ -1,9 +1,9 @@
 import os.path as path
-import math
 from collections import defaultdict
 import random
 import torch
 import copy
+from torch.utils.tensorboard import SummaryWriter
 import policy
 from transformers import BartTokenizer, BartForConditionalGeneration
 import torch.nn.functional as F
@@ -18,13 +18,17 @@ dot_before_path = path.join (data_processed_path, "dot_before")
 dot_after_path = path.join (data_processed_path, "dot_after")
 dot_file_path = path.join (dot_before_path, "0.dot")
 black_list_path = path.join (base_path, "blacklist.txt")
+parameter_path = path.join (model_path, "parameter")
+pth_path = path.join (parameter_path, "model.pth")
+runs_dir = path.join (base_path, "runs")
+train_log_dir = path.join (runs_dir, "cell_exp")
 
-black_list = []
+black_list = set ()
 
 def clone_cells (cells) :
     new_cells = []
     for c in cells :
-        new_cells.append (Cell (c.id, c.latent.detach ().clone ()))
+        new_cells.append (Cell (c.id, c.latent.clone ()))
     return new_cells
 
 def get_degs (n : int, G : list[list[int]]) :
@@ -53,14 +57,11 @@ class Cell :
         return torch.sqrt (torch.sum (self.latent ** 2))
 
 class ExpectGraph :
-    def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], alive : dict[int, bool]) :
-        self.n = 0
-        self.cells = []
-        for i in range (0, n) :
-            if alive[i] :
-                self.cells.append (cells[i])
-                self.n += 1
+    def __init__ (self, n : int, cells : list[Cell], G : list[list[int]]) :
+        self.n = n
         self.G = G
+        self.cells = cells
+
     def print (self) :
         print ("cell number = ", self.n, end="")
         for cell in self.cells :
@@ -104,6 +105,7 @@ def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : di
         if (vis2[u]) :
             continue
         ret += SubtreeSquareSum (target, u, vis2)
+
     return ret
 
 def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph) :
@@ -115,15 +117,21 @@ class CellGraph :
     def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], degs : list[int]) :
         self.n = n
         self.cells = copy.deepcopy (cells)
-        self.alive = {}
-        for i in range (0, self.n) :
-            self.alive[i] = True
         self.degs = copy.deepcopy (degs)
         self.G = copy.deepcopy (G)
         self.spread = []
         self.receive = []
         for i in range (0, self.n) :
             self.spread.append (self.cells[i].latent)
+
+    def degs_update (self) :
+        self.degs = [0 for _ in range (self.n)]
+        for i in range (self.n) :
+            for j in self.G[i] :
+                self.degs[i] += 1
+
+    def is_leaf (self, i) :
+        return self.degs[i] == 1
 
     def print (self) :
         print ("cell number = ", self.n, end="")
@@ -133,38 +141,38 @@ class CellGraph :
             for v in self.G[u] :
                 print ("(", u, ",", v, end=") ")
         print ("cell living condition : ")
-        for x in self.alive :
-            print (x, end=" ")
+
+    def print_degs (self) :
+        for i in range (self.n) :
+            print ("degs[", end="")
+            print (i, end="")
+            print ("] = ", end="")
+            print (self.degs[i])
+
+    def leaf_num (self) :
+        leaf_num = 0
+        for i in range (self.n) :
+            if self.degs[i] == 1 :
+                leaf_num += 1
+        return leaf_num
 
     def getReceive (self) :
         self.receive = []
         for i in range (self.n) :
-            if self.alive[i] :
-                latents = []
-                for j in self.G[i] :
-                    #print ("i = ", end="")
-                    #print (i, end=" ")
-                    #print ("j = ", end="")
-                    #print (j)
-                    if self.alive[j] :
-                        latents.append (self.spread[j])
-                self.receive.append (torch.cat (latents, dim=1).detach ())
+            latents = []
+            if len (self.G[i]) == 0 :
+                self.receive.append (self.cells[i].latent)
             else :
-                self.receive.append (None)
+                for j in self.G[i] :
+                    latents.append (self.spread[j])
+                self.receive.append (torch.cat (latents, dim=1))
 
     def train (self, obj_graph : ExpectGraph, update_policy, spread_policy, 
-        copy_policy, dead_policy, learning_rate=1e-3) :
+        copy_policy, dead_policy, writer, global_step, optimizer, device) :
         print ("current cell number is ", end="")
         print (self.n)
-        optimizer = torch.optim.Adam (
-            list (update_policy.parameters ()) +
-            list (spread_policy.parameters ()) +
-            list (copy_policy.parameters ()) +
-            list (dead_policy.parameters ()),
-            lr = learning_rate
-        )
         self.getReceive ()
-        exp_graph = ExpectGraph (copy.deepcopy (self.n), clone_cells (self.cells), copy.deepcopy (self.G), copy.deepcopy (self.alive))
+        exp_graph = ExpectGraph (copy.deepcopy (self.n), clone_cells (self.cells), copy.deepcopy (self.G))
         #pre_graph = copy.deepcopy (exp_graph)
         alive_prob_dict = {}
         copy_prob_dict = {}
@@ -173,82 +181,94 @@ class CellGraph :
         new_latent = []
         new_spread = []
         for i in range (self.n) :
-            if self.alive[i] :
-                update_latent = update_policy (self.cells[i].latent, self.receive[i])
-                spread_latent = spread_policy (self.cells[i].latent, self.receive[i])
-                new_latent.append (update_latent)
-                new_spread.append (spread_latent)
-                self.spread[i] = spread_latent.detach ()
-                copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
-                if self.degs[i] != 1 :
-                    exp_graph.cells[i].latent = update_latent
-                    copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
-                    exp_graph.cells.append (Cell (exp_graph.n, (spread_latent * copy_prob).detach ()))
-                    exp_graph.G.append ([])
-                    exp_graph.G[exp_graph.n].append (i)
-                    exp_graph.G[i].append (exp_graph.n)
-                    exp_graph.n += 1 
-                    copy_prob_dict[i] = copy_prob
-                    alive_prob_dict[i] = torch.tensor (1.0)
-                else :
-                    dead_prob = dead_policy (self.cells[i].latent, self.receive[i])
-                    copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
-                    exp_graph.cells[i].latent = ((1.0 - dead_prob) * exp_graph.cells[i].latent).detach ()
-                    exp_graph.cells.append (Cell (exp_graph.n, (spread_latent * copy_prob * (1.0 - dead_prob).detach ())))
-                    exp_graph.G.append ([])
-                    exp_graph.G[exp_graph.n].append (i)
-                    exp_graph.G[i].append (exp_graph.n)
-                    exp_graph.n += 1
-                    copy_prob_dict[i] = copy_prob
-                    alive_prob_dict[i] = torch.tensor (1.0) - dead_prob
-            else :
-                new_latent.append (None)
-                new_spread.append (None)
+            update_latent = update_policy (self.cells[i].latent, self.receive[i])
+            spread_latent = spread_policy (self.cells[i].latent, self.receive[i])
+            new_latent.append (update_latent)
+            new_spread.append (spread_latent)
+            self.spread[i] = spread_latent.detach ()
+            copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
+            if (not self.is_leaf (i)) or self.degs[i] == 0 or self.n <= 2 :            # not leaf or root
+                #print ("this case")
+                exp_graph.cells[i].latent = update_latent
+                copy_prob = copy_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
+                exp_graph.cells.append (Cell (exp_graph.n, (spread_latent * copy_prob)))
+                exp_graph.G.append ([])
+                exp_graph.G[exp_graph.n].append (i)
+                exp_graph.G[i].append (exp_graph.n)
+                exp_graph.n += 1 
+                copy_prob_dict[i] = copy_prob
+                alive_prob_dict[i] = torch.tensor (1.0, device=device).reshape (1, 1, 1)
+            else :                           # leaf
+                dead_prob = dead_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
+                copy_prob = copy_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
+                exp_graph.cells[i].latent = ((1.0 - dead_prob) * exp_graph.cells[i].latent)
+                exp_graph.cells.append (Cell (exp_graph.n, (spread_latent * copy_prob * (1.0 - dead_prob))))
+                exp_graph.G.append ([])
+                exp_graph.G[exp_graph.n].append (i)
+                exp_graph.G[i].append (exp_graph.n)
+                exp_graph.n += 1
+                copy_prob_dict[i] = copy_prob
+                alive_prob_dict[i] = torch.tensor (1.0, device=device).reshape (1, 1, 1) - dead_prob
+            #print ("alive chance : ", alive_prob_dict[i])
+            #print ("copy chance : ", copy_prob_dict[i])
+        #print ("Expect graph generate success.")
         mse_loss = ExpectGraphMSE (exp_graph, obj_graph)
         optimizer.zero_grad ()
         mse_loss.backward ()
+        #writer.add_scalar ("loss/train", ((mse_loss / self.n).item (), global_step))
         optimizer.step ()
-        print ("train complete")
-        # train the policy network
         print ("mse_loss = ", end="")
         print (mse_loss, end = " ")
         print ("average loss = ", end="")
         print (mse_loss / self.n)
+        average_alive_prob = 0
+        average_copy_prob = 0
         for i in range (self.n) :
-            if self.alive[i] :
-                alive_sample[i] = int (random.random () < alive_prob_dict[i])
-                if alive_sample[i] == 0 :
-                    copy_sample[i] = 0
-                else :
-                    copy_sample[i] = int (random.random () < copy_prob_dict[i])
-        # caculate the alive and copy probility
-        pre_n = self.n
-        for i in range (pre_n) :
-            if self.alive[i] :
-                if alive_sample[i] :
-                    self.cells[i].latent = new_latent[i].detach ()
-                    if copy_sample[i] :
-                        new_id = self.n
-                        self.n += 1
-                        #print ("when i is ", i, end=" ,")
-                        #print ("new_id is", new_id, end="")
-                        self.G.append ([])
-                        self.G[i].append (new_id)
-                        self.G[new_id].append (i)
-                        self.cells.append (Cell (new_id, new_spread[i].detach ()))
-                        self.spread.append (new_spread[i].detach ())
-                        self.alive[new_id] = True
-                        #print ("new_id = ", end="")
-                        #print (new_id)
-                        self.degs.append (1)
-                        self.degs[i] += 1
-                else :
-                    for v in self.G[i] :
-                        if self.alive[v] :
-                            self.degs[v] -= 1
-                    self.alive[i] = False
+            average_alive_prob += alive_prob_dict[i]
+            average_copy_prob += copy_prob_dict[i]
+            alive_sample[i] = int (random.random () < alive_prob_dict[i].item ())
+            if alive_sample[i] == 0 :
+                copy_sample[i] = 0
+            else :
+                copy_sample[i] = int (random.random () < copy_prob_dict[i].item ())
+
+        new_map = {}
+        new_n = 0
+        for i in range (self.n) :
+            if alive_sample[i] :
+                new_map[i] = new_n
+                new_n += 1
+        new_G = [[] for _ in range (new_n)]
+        for i in range (self.n) :
+            if alive_sample[i] :
+                for j in self.G[i] :
+                    if alive_sample[j] :
+                        new_G[new_map[i]].append (new_map[j])
+        self.cells = [cell for i, cell in enumerate (self.cells) if alive_sample[i]]
+        self.spread = [vec for i, vec in enumerate (self.spread) if alive_sample[i]]
+        self.n = new_n
+        self.G = new_G
+        for i in range (self.n) :
+            if copy_sample[i] :
+                self.cells.append (Cell (new_n, self.spread[i].detach ()))
+                self.G.append ([])
+                self.G[i].append (new_n)
+                self.G[new_n].append (i)
+                self.spread.append (self.spread[i])
+                new_n += 1
+        self.n = new_n
+
+        self.degs_update ()
+        #self.print_degs ()
+        #print ("leaf_num = ", end="")
+        #print (self.leaf_num ())
 
     def loadFile (self, file_path : str, tokenizer, model, device) :
+        self.n = 0
+        self.cells = []
+        self.G = []
+        self.degs = []
+        self.spread = []
         print ("loadFile start")
         ast = AST (file_path)
         cells = []
@@ -267,9 +287,7 @@ class CellGraph :
             cells.append (Cell (node.node_id, latent))
         self.n = ast.n
         self.cells = cells
-        self.alive = {}
         for i in range (0, self.n) :
-            self.alive[i] = True
             self.spread.append (self.cells[i].latent)
         self.degs = get_degs (self.n, ast.G)
         self.G = ast.G
@@ -336,10 +354,17 @@ class AST :
         
 
 def main () :
+    with open (black_list_path, "r") as f :
+        for line in f :
+            file = line.strip ()
+            if file :
+                black_list.add (file)
+    writer = SummaryWriter (train_log_dir)
     device = torch.device ("cuda" if torch.cuda.is_available () else "cpu")
     print ("initialize bart.")
     tokenizer = BartTokenizer.from_pretrained ("facebook/bart-base")
-    model = BartForConditionalGeneration.from_pretrained ("facebook/bart-base").to (device)
+    model = BartForConditionalGeneration.from_pretrained ("facebook/bart-base")
+    model = model.to (device)
     print ("initialize success.")
     #ast_kind_pooler = attn_pool_project.AttnPoolProject (dim=768)
     #content_pooler = attn_pool_project.AttnPoolProject (dim=768)
@@ -369,42 +394,71 @@ def main () :
     aid_graph = copy.deepcopy (cg)
     cg.print ()
     # initialize cell graph and its spread tensor
-    
-    update_policy = policy.DeepCell (d=1538, num_layer=4).to (device)
-    spread_policy = policy.DeepCell (d=1538, num_layer=4).to (device)
-    copy_policy = policy.DicideBlock (d=1538, num_layer=6).to (device)
-    dead_policy = policy.DicideBlock (d=1538, num_layer=6).to (device)
-    learning_rate = 1e-6
+
+    update_policy = policy.DeepCell (d=1538, num_layer=8).to (device)
+    spread_policy = policy.DeepCell (d=1538, num_layer=8).to (device)
+    copy_policy = policy.DicideBlock (d=1538, num_layer=8).to (device)
+    dead_policy = policy.DicideBlock (d=1538, num_layer=8).to (device)
+    learning_rate = 1e-3
     epoch = 10
+    round_times = 100
+    optimizer = torch.optim.Adam (
+        list (update_policy.parameters ()) +
+        list (spread_policy.parameters ()) +
+        list (copy_policy.parameters ()) +
+        list (dead_policy.parameters ()),
+        lr = learning_rate
+    )
+    if path.exists (pth_path) :
+        check_point = torch.load (pth_path, map_location=device)
+        update_policy.load_state_dict (check_point["update_policy"])
+        spread_policy.load_state_dict (check_point["spread_policy"])
+        copy_policy.load_state_dict (check_point["copy_policy"])
+        dead_policy.load_state_dict (check_point["dead_policy"])
+
     # initialize the policy parameters
 
+    train_tot = 0
     file_num = 0
     for i in range (epoch) :
         print ("epoch : ", end="")
         print (epoch)
-        for file in os.listdir (dot_before_path) :
+        for file in sorted (os.listdir (dot_before_path), key=lambda x : int(x.split('.')[0])) :
             if file in black_list :
                 continue
             try :
+                #print ("GPU MB :", torch.cuda.memory_allocated () / 1024**2)
                 print ("file name is ", end="")
                 print (file)
                 error_path = os.path.join (dot_before_path, file)
                 right_path = os.path.join (dot_after_path, file)
                 cg.loadFile (error_path, tokenizer=tokenizer, model=model, device=device)
                 aid_graph.loadFile (right_path, tokenizer=tokenizer, model=model, device=device)
-                right_expect_graph = ExpectGraph (aid_graph.n, aid_graph.cells, aid_graph.G, aid_graph.alive)
-                T = 1
-                for _ in range (T) :
-                    cg.train (right_expect_graph, update_policy, spread_policy, copy_policy, dead_policy,
-                              learning_rate=learning_rate)
+                right_expect_graph = ExpectGraph (aid_graph.n, aid_graph.cells, aid_graph.G)
+                T = 100
+                for j in range (T) :        
+                    print ("T = ", j, end=" ;")
+                    print ("GPU MB :", torch.cuda.memory_allocated () / 1024**2)
+                    cg.train (right_expect_graph, update_policy, spread_policy, 
+                        copy_policy, dead_policy, writer, train_tot, optimizer, device)
+                    if cg.n <= 2 :
+                        break
                 file_num += 1
             except Exception as e :
                 print (f"[CRASH] {file}: {e}")
                 with open (black_list_path, "a") as f :
                     f.write (file + "\n")
-                black_list.append (file)
+                black_list.add (file)
                 continue
-    
+            train_tot += 1
+            if train_tot % round_times == 0 :
+                torch.save ({
+                    "update_policy" : update_policy.state_dict (),
+                    "spread_policy" : spread_policy.state_dict (),
+                    "copy_policy" : copy_policy.state_dict (),
+                    "dead_policy" : dead_policy.state_dict (),
+                }, pth_path)
+
     return 0
 
 if __name__ == '__main__' :

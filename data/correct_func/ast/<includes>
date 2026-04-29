@@ -1,8 +1,0 @@
-digraph "<global>" {
-node [shape="rect"];
-"107374497471" [label = <METHOD, 1 <global>> ]
-"25770581167" [label = <BLOCK <empty>> ]
-"124554366655" [label = <METHOD_RETURN, 1 ANY> ]
-"107374497471" -> "25770581167"
-"107374497471" -> "124554366655"
-}

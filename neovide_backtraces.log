@@ -1,0 +1,84 @@
+2026-04-28 09:38:59 - Neovide panicked with the message 'Failed to create OpenGL context: Error { raw_code: Some(165), raw_os_message: Some("GLXBadFBConfig"), kind: BadConfig }'. (File: src/renderer/opengl.rs; Line: 99, Column: 14)
+   0: <unknown>
+   1: <unknown>
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: <unknown>
+  12: <unknown>
+  13: <unknown>
+  14: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  15: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  16: <unknown>
+
+2026-04-28 09:39:17 - Neovide panicked with the message 'Failed to create OpenGL context: Error { raw_code: Some(165), raw_os_message: Some("GLXBadFBConfig"), kind: BadConfig }'. (File: src/renderer/opengl.rs; Line: 99, Column: 14)
+   0: <unknown>
+   1: <unknown>
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: <unknown>
+  12: <unknown>
+  13: <unknown>
+  14: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  15: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  16: <unknown>
+
+2026-04-28 09:42:29 - Neovide panicked with the message 'Failed to create OpenGL context: Error { raw_code: Some(165), raw_os_message: Some("GLXBadFBConfig"), kind: BadConfig }'. (File: src/renderer/opengl.rs; Line: 99, Column: 14)
+   0: <unknown>
+   1: <unknown>
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: <unknown>
+  12: <unknown>
+  13: <unknown>
+  14: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  15: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  16: <unknown>
+
+2026-04-28 09:43:19 - Neovide panicked with the message 'Failed to create OpenGL context: Error { raw_code: Some(165), raw_os_message: Some("GLXBadFBConfig"), kind: BadConfig }'. (File: src/renderer/opengl.rs; Line: 99, Column: 14)
+   0: <unknown>
+   1: <unknown>
+   2: <unknown>
+   3: <unknown>
+   4: <unknown>
+   5: <unknown>
+   6: <unknown>
+   7: <unknown>
+   8: <unknown>
+   9: <unknown>
+  10: <unknown>
+  11: <unknown>
+  12: <unknown>
+  13: <unknown>
+  14: __libc_start_call_main
+             at ./csu/../sysdeps/nptl/libc_start_call_main.h:58:16
+  15: __libc_start_main_impl
+             at ./csu/../csu/libc-start.c:360:3
+  16: <unknown>
+
