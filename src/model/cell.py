@@ -9,6 +9,7 @@ from transformers import BartTokenizer, BartForConditionalGeneration
 import torch.nn.functional as F
 import os
 
+eps = 1e-4
 abs_path = path.abspath (__file__)
 model_path = path.dirname (abs_path)
 src_path = path.dirname (model_path)
@@ -70,48 +71,67 @@ class ExpectGraph :
             for v in self.G[u] :
                 print ("(", u, ",", v, end=") ")
 
+    def deg (self, u : int) :
+        return len (self.G[u])
+
 def SubtreeSquareSum (tree : ExpectGraph, u : int, vis : dict[int, bool]) :
+    num = 0
     vis[u] = True
-    ret = torch.sum (tree.cells[u].latent ** 2)
+    ret = torch.sum (tree.cells[u].latent ** 2) + 1
     for v in tree.G[u] :
         if (vis[v]) :
             continue
-        ret += SubtreeSquareSum (tree, v, vis)
-    return ret
+        (tot, sqs) = SubtreeSquareSum (tree, v, vis)
+        num += tot
+        ret += sqs
+    return num, ret
 
-def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : dict[int, bool], vis2 : dict[int, bool]) :
+def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : dict[int, bool], vis2 : dict[int, bool],
+         alive_prob_dict, copy_prob_dict, alpha_1, alpha_2, alpha_3) :
     #print ("dfs")
     vis1[u1] = True
     vis2[u2] = True
     latent_pred = pred.cells[u1].latent
     latent_target = target.cells[u2].latent
     ret = F.mse_loss (latent_pred, latent_target)
+    pred_norm = torch.norm (latent_pred, dim=-1)
+    prevent_collapse_loss = 1.0 / (pred_norm.pow (2) + eps)
+    prevent_collapse_loss = prevent_collapse_loss.mean ()
+    ret += alpha_1 * prevent_collapse_loss / (pred.n + eps)
     limit = min (len (pred.G[u1]), len (target.G[u2]))
     for i in range (0, limit) :
         v1 = pred.G[u1][i]
         v2 = target.G[u2][i]
-        if (vis1[v1]) :
+        if vis1[v1] :
             continue
-        if (vis2[v2]) :
+        if vis2[v2] :
             continue
-        ret += dfs (pred, target, v1,v2, vis1, vis2)
+        ret += dfs (pred, target, v1,v2, vis1, vis2, alive_prob_dict, copy_prob_dict, alpha_1, alpha_2, alpha_3)
     for i in range (limit, len (pred.G[u1])) :
         u = pred.G[u1][i]
-        if (vis1[u]) :
+        if vis1[u] :
             continue
-        ret += SubtreeSquareSum (pred, u, vis1)
+        sum = SubtreeSquareSum (pred, u, vis1)[0]
+        if pred.deg (u1) != 1 :
+            ret += copy_prob_dict[u1].squeeze () * sum * alpha_3
+        if pred.deg (u1) == 2 :
+            ret += (1 - alive_prob_dict[u1].squeeze ()) * sum * alpha_3
     for i in range (limit, len (target.G[u2])) :
         u = target.G[u2][i]
-        if (vis2[u]) :
+        if vis2[u] :
             continue
-        ret += SubtreeSquareSum (target, u, vis2)
-
+        sum = SubtreeSquareSum (target, u, vis2)[0]
+        if pred.deg (u1) != 1 :
+            ret += (1 - copy_prob_dict[u1].squeeze ()) * sum * alpha_3
+        if pred.deg (u1) == 2 :
+            ret += alive_prob_dict[u1].squeeze () * sum * alpha_3
     return ret
 
-def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph) :
+def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph, 
+                    alive_prob_dict, copy_prob_dict, alpha_1=1, alpha_2=0.1, alpha_3=10) :
     vis1 = defaultdict (bool)
     vis2 = defaultdict (bool)
-    return dfs (g1, g2, 0, 0, vis1, vis2)
+    return dfs (g1, g2, 0, 0, vis1, vis2, alive_prob_dict, copy_prob_dict, alpha_1, alpha_2, alpha_3)
 
 class CellGraph :
     def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], degs : list[int]) :
@@ -169,8 +189,6 @@ class CellGraph :
 
     def train (self, obj_graph : ExpectGraph, update_policy, spread_policy, 
         copy_policy, dead_policy, writer, global_step, optimizer, device) :
-        print ("current cell number is ", end="")
-        print (self.n)
         self.getReceive ()
         exp_graph = ExpectGraph (copy.deepcopy (self.n), clone_cells (self.cells), copy.deepcopy (self.G))
         #pre_graph = copy.deepcopy (exp_graph)
@@ -212,7 +230,7 @@ class CellGraph :
             #print ("alive chance : ", alive_prob_dict[i])
             #print ("copy chance : ", copy_prob_dict[i])
         #print ("Expect graph generate success.")
-        mse_loss = ExpectGraphMSE (exp_graph, obj_graph)
+        mse_loss = ExpectGraphMSE (exp_graph, obj_graph, alive_prob_dict, copy_prob_dict)
         optimizer.zero_grad ()
         mse_loss.backward ()
         #writer.add_scalar ("loss/train", ((mse_loss / self.n).item (), global_step))
@@ -262,6 +280,9 @@ class CellGraph :
         #self.print_degs ()
         #print ("leaf_num = ", end="")
         #print (self.leaf_num ())
+        print ("current cell number is ", end="")
+        print (self.n, end=", target cell number is ")
+        print (obj_graph.n)
 
     def loadFile (self, file_path : str, tokenizer, model, device) :
         self.n = 0
@@ -281,8 +302,8 @@ class CellGraph :
                 content_latent = model.model.encoder (**content_input).last_hidden_state
             latent0 = ast_kind_latent.mean (dim=1, keepdim=True).to (device)  # (B, 1, d)
             latent1 = content_latent.mean (dim=1, keepdim=True).to (device)    # (B, 1, d)
-            latent2 = torch.tensor (node.ast_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
-            latent3 = torch.tensor (node.node_id).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
+            latent2 = torch.tanh (torch.tensor (node.ast_id)).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
+            latent3 = torch.tanh (torch.tensor (node.node_id)).unsqueeze (-1).unsqueeze (-1).unsqueeze (-1).to (device) # (1, 1, 1)
             latent = torch.cat ([latent0, latent1, latent2, latent3], dim=2)   # (1, 1, 1538)
             cells.append (Cell (node.node_id, latent))
         self.n = ast.n
@@ -436,9 +457,12 @@ def main () :
                 aid_graph.loadFile (right_path, tokenizer=tokenizer, model=model, device=device)
                 right_expect_graph = ExpectGraph (aid_graph.n, aid_graph.cells, aid_graph.G)
                 T = 100
+                print ("current cell number is ", end="")
+                print (cg.n, end=", target cell number is ")
+                print (aid_graph.n)
                 for j in range (T) :        
-                    print ("T = ", j, end=" ;")
-                    print ("GPU MB :", torch.cuda.memory_allocated () / 1024**2)
+                    print ("T = ", j, end=" ")
+                    #print ("GPU MB :", torch.cuda.memory_allocated () / 1024**2)
                     cg.train (right_expect_graph, update_policy, spread_policy, 
                         copy_policy, dead_policy, writer, train_tot, optimizer, device)
                     if cg.n <= 2 :
