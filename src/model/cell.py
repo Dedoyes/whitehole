@@ -86,18 +86,25 @@ def SubtreeSquareSum (tree : ExpectGraph, u : int, vis : dict[int, bool]) :
         ret += sqs
     return num, ret
 
+def markDeadLeaf (pred : ExpectGraph, u : int, vis : dict[int, bool], correct_alive_prob, correct_copy_prob, device) :
+    vis[u] = True
+    correct_copy_prob[u] = torch.tensor (0.0, device=device)
+    if pred.deg (u) == 1 :
+        correct_alive_prob[u] = torch.tensor (0.0, device=device)
+    for v in pred.G[u] :
+        if vis[v] :
+            continue
+        markDeadLeaf (pred, v, vis, correct_alive_prob, correct_copy_prob, device)
+
 def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : dict[int, bool], vis2 : dict[int, bool],
-         alive_prob_dict, copy_prob_dict, alpha_1, alpha_2, alpha_3) :
+         correct_alive_prob, correct_copy_prob, correct_latent_dict, correct_spread_dict,
+         latent_node_lst, spread_node_lst, device) :
     #print ("dfs")
+    latent_node_lst.append (u1)
     vis1[u1] = True
     vis2[u2] = True
-    latent_pred = pred.cells[u1].latent
-    latent_target = target.cells[u2].latent
-    ret = F.mse_loss (latent_pred, latent_target)
-    pred_norm = torch.norm (latent_pred, dim=-1)
-    prevent_collapse_loss = 1.0 / (pred_norm.pow (2) + eps)
-    prevent_collapse_loss = prevent_collapse_loss.mean ()
-    ret += alpha_1 * prevent_collapse_loss / (pred.n + eps)
+    correct_latent_dict[u1] = target.cells[u2].latent
+    correct_alive_prob[u1] = torch.tensor (1.0, device=device)
     limit = min (len (pred.G[u1]), len (target.G[u2]))
     for i in range (0, limit) :
         v1 = pred.G[u1][i]
@@ -105,33 +112,23 @@ def dfs (pred : ExpectGraph, target : ExpectGraph, u1 : int, u2 : int, vis1 : di
         if vis1[v1] :
             continue
         if vis2[v2] :
-            continue
-        ret += dfs (pred, target, v1,v2, vis1, vis2, alive_prob_dict, copy_prob_dict, alpha_1, alpha_2, alpha_3)
+            continue 
+        dfs (pred, target, v1, v2, vis1, vis2, 
+             correct_alive_prob, correct_copy_prob, 
+             correct_latent_dict, correct_spread_dict,
+             latent_node_lst, spread_node_lst, device)
     for i in range (limit, len (pred.G[u1])) :
         u = pred.G[u1][i]
         if vis1[u] :
             continue
-        sum = SubtreeSquareSum (pred, u, vis1)[0]
-        if pred.deg (u1) != 1 :
-            ret += copy_prob_dict[u1].squeeze () * sum * alpha_3
-        if pred.deg (u1) == 2 :
-            ret += (1 - alive_prob_dict[u1].squeeze ()) * sum * alpha_3
-    for i in range (limit, len (target.G[u2])) :
-        u = target.G[u2][i]
-        if vis2[u] :
-            continue
-        sum = SubtreeSquareSum (target, u, vis2)[0]
-        if pred.deg (u1) != 1 :
-            ret += (1 - copy_prob_dict[u1].squeeze ()) * sum * alpha_3
-        if pred.deg (u1) == 2 :
-            ret += alive_prob_dict[u1].squeeze () * sum * alpha_3
-    return ret
-
-def ExpectGraphMSE (g1 : ExpectGraph, g2 : ExpectGraph, 
-                    alive_prob_dict, copy_prob_dict, alpha_1=1, alpha_2=0.1, alpha_3=10) :
-    vis1 = defaultdict (bool)
-    vis2 = defaultdict (bool)
-    return dfs (g1, g2, 0, 0, vis1, vis2, alive_prob_dict, copy_prob_dict, alpha_1, alpha_2, alpha_3)
+        markDeadLeaf (pred, u, vis1, correct_alive_prob, correct_copy_prob, device)
+    if len (target.G[u2]) > limit :
+        correct_alive_prob[u1] = torch.tensor (1.0, device=device)
+        correct_copy_prob[u1] = torch.tensor (1.0, device=device)
+        correct_spread_dict[u1] = target.cells[target.G[u2][limit]].latent
+        spread_node_lst.append (u1)
+    else :
+        correct_copy_prob[u1] = torch.tensor (0.0, device=device)
 
 class CellGraph :
     def __init__ (self, n : int, cells : list[Cell], G : list[list[int]], degs : list[int]) :
@@ -188,8 +185,10 @@ class CellGraph :
                 self.receive.append (torch.cat (latents, dim=1))
 
     def train (self, obj_graph : ExpectGraph, update_policy, spread_policy, 
-        copy_policy, dead_policy, writer, global_step, optimizer, device) :
+        copy_policy, alive_policy, writer, global_step, optimizer_update,
+        optimizer_spread, optimizer_copy, optimizer_alive, device) :
         self.getReceive ()
+        self.degs_update ()
         exp_graph = ExpectGraph (copy.deepcopy (self.n), clone_cells (self.cells), copy.deepcopy (self.G))
         #pre_graph = copy.deepcopy (exp_graph)
         alive_prob_dict = {}
@@ -198,53 +197,153 @@ class CellGraph :
         copy_sample = {}
         new_latent = []
         new_spread = []
+        expect_add_sum = torch.tensor (0.0, device=device).reshape (1, 1, 1)
+        expect_sub_sum = torch.tensor (0.0, device=device).reshape (1, 1, 1)
         for i in range (self.n) :
             update_latent = update_policy (self.cells[i].latent, self.receive[i])
             spread_latent = spread_policy (self.cells[i].latent, self.receive[i])
             new_latent.append (update_latent)
             new_spread.append (spread_latent)
-            self.spread[i] = spread_latent.detach ()
             copy_prob = copy_policy (self.cells[i].latent, self.receive[i])
             if (not self.is_leaf (i)) or self.degs[i] == 0 or self.n <= 2 :            # not leaf or root
                 #print ("this case")
                 exp_graph.cells[i].latent = update_latent
                 copy_prob = copy_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
-                exp_graph.cells.append (Cell (exp_graph.n, (spread_latent * copy_prob)))
-                exp_graph.G.append ([])
-                exp_graph.G[exp_graph.n].append (i)
-                exp_graph.G[i].append (exp_graph.n)
-                exp_graph.n += 1 
                 copy_prob_dict[i] = copy_prob
                 alive_prob_dict[i] = torch.tensor (1.0, device=device).reshape (1, 1, 1)
+                expect_add_sum += copy_prob
             else :                           # leaf
-                dead_prob = dead_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
+                alive_prob = alive_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
                 copy_prob = copy_policy (self.cells[i].latent, self.receive[i]).reshape (1, 1, 1)
-                exp_graph.cells[i].latent = ((1.0 - dead_prob) * exp_graph.cells[i].latent)
-                exp_graph.cells.append (Cell (exp_graph.n, (spread_latent * copy_prob * (1.0 - dead_prob))))
-                exp_graph.G.append ([])
-                exp_graph.G[exp_graph.n].append (i)
-                exp_graph.G[i].append (exp_graph.n)
-                exp_graph.n += 1
                 copy_prob_dict[i] = copy_prob
-                alive_prob_dict[i] = torch.tensor (1.0, device=device).reshape (1, 1, 1) - dead_prob
+                alive_prob_dict[i] = alive_prob           
+                expect_sub_sum += torch.tensor (1.0, device=device).reshape (1, 1, 1) - alive_prob
+                expect_add_sum += alive_prob * copy_prob
             #print ("alive chance : ", alive_prob_dict[i])
             #print ("copy chance : ", copy_prob_dict[i])
         #print ("Expect graph generate success.")
-        mse_loss = ExpectGraphMSE (exp_graph, obj_graph, alive_prob_dict, copy_prob_dict)
-        optimizer.zero_grad ()
-        mse_loss.backward ()
-        #writer.add_scalar ("loss/train", ((mse_loss / self.n).item (), global_step))
-        optimizer.step ()
-        print ("mse_loss = ", end="")
-        print (mse_loss, end = " ")
-        print ("average loss = ", end="")
-        print (mse_loss / self.n)
+
+        pred_graph_vis = defaultdict (bool)
+        target_graph_vis = defaultdict (bool)
+        correct_copy_prob = {}
+        correct_alive_prob = {}
+        correct_latent_dict = {}
+        correct_spread_dict = {}
+        latent_node_lst = []
+        spread_node_lst = []
+        dfs (
+            pred=exp_graph, 
+            target=obj_graph, 
+            u1=0, u2=0,
+            vis1=pred_graph_vis,
+            vis2=target_graph_vis,
+            correct_alive_prob=correct_alive_prob,
+            correct_copy_prob=correct_copy_prob,
+            correct_latent_dict=correct_latent_dict,
+            correct_spread_dict=correct_spread_dict,
+            latent_node_lst=latent_node_lst,
+            spread_node_lst=spread_node_lst,
+            device=device
+        )
+        #print ("latent_node_lst : ", latent_node_lst)
+        #print ("spread_node_lst : ", spread_node_lst)
+
+        pred_copy_list = []
+        target_copy_list = []
+        for i in range (self.n) :
+            pred_copy = copy_prob_dict[i]
+            target_copy = correct_copy_prob[i]
+            pred_copy_list.append (pred_copy.reshape (-1))
+            target_copy_list.append (target_copy.reshape (-1))
+        pred_tensor = torch.cat (pred_copy_list)
+        target_tensor = torch.cat (target_copy_list)
+        loss_copy = F.binary_cross_entropy (pred_tensor, target_tensor)
+        #print ("copy train success.")
+        # train copy policy
+
+
+        pred_alive_list = []
+        target_alive_list = []
+        for i in range (self.n) :
+            if self.degs[i] == 1 :
+                #print ("leaf : ", i)
+                pred_alive = alive_prob_dict[i].reshape (-1)
+                target_alive = correct_alive_prob[i].reshape (-1)
+                pred_alive_list.append (pred_alive)
+                target_alive_list.append (target_alive)
+        pred_tensor = torch.cat (pred_alive_list)
+        target_tensor = torch.cat (target_alive_list)
+        loss_alive = F.binary_cross_entropy (pred_tensor, target_tensor)
+        #print ("alive train success.")
+        # train alive policy
+
+        pred_latent_list = []
+        target_latent_list = []
+        for i in latent_node_lst :
+            pred_latent = new_latent[i]
+            target_latent = correct_latent_dict[i]
+            pred_latent_list.append (pred_latent)
+            target_latent_list.append (target_latent)
+        pred_tensor = torch.cat (pred_latent_list)
+        target_tensor = torch.cat (target_latent_list)
+        loss_latent = F.mse_loss (pred_tensor, target_tensor)
+        #print ("update train success.")
+        # train update policy
+
+        pred_spread_list = []
+        target_spread_list = []
+        for i in spread_node_lst :
+            pred_spread = new_spread[i]
+            target_spread = correct_spread_dict[i]
+            pred_spread_list.append (pred_spread.reshape (-1))
+            target_spread_list.append (target_spread.reshape (-1))
+        loss_spread = 0
+        if len (pred_spread_list) > 0 :
+            pred_tensor = torch.cat (pred_spread_list)
+            target_tensor = torch.cat (target_spread_list)
+            loss_spread = F.mse_loss (pred_tensor, target_tensor)
+        #print ("spread train success.")
+        # train spread policy
+
+        pred_n = torch.tensor (0.0 + self.n, device=device).reshape (1, 1, 1) + expect_add_sum - expect_sub_sum
+        target_n = torch.tensor (0.0 + obj_graph.n, device=device).reshape (1, 1, 1)
+        loss_size = F.l1_loss (pred_n, target_n)
+        print ()
+        print ("copy loss = ", loss_copy)
+        print ("alive loss = ", loss_alive)
+        print ("latent loss = ", loss_latent)
+        print ("size loss = ", loss_size)
+        total_loss = loss_copy + loss_alive + loss_latent + loss_size
+        if len (pred_spread_list) > 0 :
+            total_loss += loss_spread
+            print ("spread loss = ", loss_spread)
+        optimizer_copy.zero_grad ()
+        optimizer_alive.zero_grad ()
+        optimizer_update.zero_grad ()
+        if len (pred_spread_list) > 0 :
+            optimizer_spread.zero_grad ()
+
+        total_loss.backward ()
+
+        optimizer_copy.step ()
+        optimizer_alive.step ()
+        optimizer_update.step ()
+        if len (pred_spread_list) > 0 :
+            optimizer_spread.step ()
+
+        for i in range (self.n) :
+            self.cells[i].latent = new_latent[i].detach ()
+            self.spread[i] = new_spread[i].detach ()
         average_alive_prob = 0
         average_copy_prob = 0
         for i in range (self.n) :
             average_alive_prob += alive_prob_dict[i]
             average_copy_prob += copy_prob_dict[i]
-            alive_sample[i] = int (random.random () < alive_prob_dict[i].item ())
+
+            if self.degs[i] == 1 :
+                alive_sample[i] = int (random.random () < alive_prob_dict[i].item ())
+            else :
+                alive_sample[i] = 1
             if alive_sample[i] == 0 :
                 copy_sample[i] = 0
             else :
@@ -419,23 +518,22 @@ def main () :
     update_policy = policy.DeepCell (d=1538, num_layer=8).to (device)
     spread_policy = policy.DeepCell (d=1538, num_layer=8).to (device)
     copy_policy = policy.DicideBlock (d=1538, num_layer=8).to (device)
-    dead_policy = policy.DicideBlock (d=1538, num_layer=8).to (device)
+    alive_policy = policy.DicideBlock (d=1538, num_layer=8).to (device)
     learning_rate = 1e-3
     epoch = 10
     round_times = 100
-    optimizer = torch.optim.Adam (
-        list (update_policy.parameters ()) +
-        list (spread_policy.parameters ()) +
-        list (copy_policy.parameters ()) +
-        list (dead_policy.parameters ()),
-        lr = learning_rate
-    )
+    
+    optimizer_update = torch.optim.Adam (update_policy.parameters (), lr=learning_rate)
+    optimizer_spread = torch.optim.Adam (spread_policy.parameters (), lr=learning_rate)
+    optimizer_copy = torch.optim.Adam (copy_policy.parameters (), lr=learning_rate)
+    optimizer_alive = torch.optim.Adam (alive_policy.parameters (), lr=learning_rate)
+
     if path.exists (pth_path) :
         check_point = torch.load (pth_path, map_location=device)
         update_policy.load_state_dict (check_point["update_policy"])
         spread_policy.load_state_dict (check_point["spread_policy"])
         copy_policy.load_state_dict (check_point["copy_policy"])
-        dead_policy.load_state_dict (check_point["dead_policy"])
+        alive_policy.load_state_dict (check_point["dead_policy"])
 
     # initialize the policy parameters
 
@@ -464,7 +562,8 @@ def main () :
                     print ("T = ", j, end=" ")
                     #print ("GPU MB :", torch.cuda.memory_allocated () / 1024**2)
                     cg.train (right_expect_graph, update_policy, spread_policy, 
-                        copy_policy, dead_policy, writer, train_tot, optimizer, device)
+                        copy_policy, alive_policy, writer, train_tot, optimizer_update,
+                        optimizer_spread, optimizer_copy, optimizer_alive, device)
                     if cg.n <= 2 :
                         break
                 file_num += 1
@@ -480,7 +579,7 @@ def main () :
                     "update_policy" : update_policy.state_dict (),
                     "spread_policy" : spread_policy.state_dict (),
                     "copy_policy" : copy_policy.state_dict (),
-                    "dead_policy" : dead_policy.state_dict (),
+                    "dead_policy" : alive_policy.state_dict (),
                 }, pth_path)
 
     return 0
