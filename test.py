@@ -1,6 +1,6 @@
-vis = {}
+import torch
 
-vis[1] = True
-vis[2] = True
-
-print (vis[1])
+x = torch.randn (5)
+print (x.shape)
+x = x.unsqueeze (-1)
+print (x.shape)
